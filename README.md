@@ -30,7 +30,7 @@ The delete workflow uses a bundled helper launched through etaHEN's local ELF lo
 
 ## Installation
 
-These instructions describe the tested **USB folder installation with ShadowMountPlus**. This repository currently contains source code, documentation, and the screenshot; its source ZIP is not a ready-to-run application. You need a complete, compatible `PPSA99005` folder build, including its runtime modules, before following these steps.
+These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.07.zip` from the [release page](../../releases/tag/v2026.10.07). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
 
 1. Start your working etaHEN/kstuff session and ensure ShadowMountPlus is available.
 2. Extract the complete Atmosphere folder build on your computer. Keep its supplied directory structure and runtime files intact.
