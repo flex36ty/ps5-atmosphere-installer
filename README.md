@@ -1,5 +1,7 @@
 # Atmosphere
 
+See [CHANGELOG.md](CHANGELOG.md) for changes and update requirements.
+
 Atmosphere is a controller-driven PS5 homebrew application for browsing games on your own SMB and FTP servers and copying them to internal storage or an attached USB drive. It is derived from [Orbit Store](https://github.com/saawant12/orbit-store-ps5).
 
 The current application uses a native OpenGL interface and an in-process C backend. Normal browsing and copying do not require a separately launched service ELF.
@@ -15,6 +17,7 @@ The current application uses a native OpenGL interface and an in-process C backe
 - Smooth scrolling, controller focus animations, square cover cards, and a frosted background.
 - Sorting by title or date added.
 - Copy to internal storage or USB, including a USB-root destination option.
+- Automatic repair of permission-denied errors on the default internal destination and staging folders, using a bundled etaHEN helper.
 - Transfer progress, speed, pause/resume, and SHA-256 verification.
 - Installed-game detection by metadata title ID, with installed-source deletion through ShadowMountPlus.
 - Minimum firmware display when present in metadata. The Backported label indicates detected `fakelib`/`fakelib2` content; it does not guarantee compatibility.
@@ -28,9 +31,13 @@ The working folder deployment should not be confused with the older experimental
 
 The delete workflow uses a bundled helper launched through etaHEN's local ELF loader on port 9021. Atmosphere closes before that helper deletes the confirmed installed source. Leave the app closed while deletion finishes.
 
+Internal permission repair also requires etaHEN's ELF loader on port 9021. If `/data/homebrew` or `/data/.atmosphere-smb-staging` rejects access, the app launches `atmosphere_permissions.elf`, waits for confirmation, and retries. The helper grants read/write/traverse permissions on that directory only; it does not recursively change game files or repair custom destinations. Copy the helper alongside `eboot.bin` when updating to a build with this feature.
+
 ## Installation
 
 These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.07.zip` from the [release page](../../releases/tag/v2026.10.07). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
+
+The permission-repair feature is newer than that release ZIP. Its new helper is shown in the layout below, but is not included in `v2026.10.07`; see the changelog for its validation and release status.
 
 1. Start your working etaHEN/kstuff session and ensure ShadowMountPlus is available.
 2. Extract the complete Atmosphere folder build on your computer. Keep its supplied directory structure and runtime files intact.
@@ -42,6 +49,7 @@ These instructions describe the tested **USB folder installation with ShadowMoun
      PPSA99005/
        eboot.bin
        atmosphere_delete.elf
+       atmosphere_permissions.elf
        sce_sys/
          param.json
          icon0.png

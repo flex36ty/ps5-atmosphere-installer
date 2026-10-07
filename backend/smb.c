@@ -649,6 +649,7 @@ end:
     free(data); free(old); EVP_MD_CTX_free(digest); EVP_MD_CTX_free(verify);
     return rc;
 }
+int storage_repair_permissions(const char *name,char *error,size_t cap);
 static int copy_game(RemoteSource *s, cJSON *work, char *err, bool *destroyed) {
     Job target = {0};
     copy_text(target.storage_id, sizeof target.storage_id, json_text(work, "storageId"));
@@ -686,6 +687,11 @@ static int copy_game(RemoteSource *s, cJSON *work, char *err, bool *destroyed) {
     char destination_path[SMB_PATH], leaf[256];
     if (!join(destination_path, destination, "placeholder")) goto end;
     dest = local_parent(root, destination_path, leaf, target.device);
+    if(dest<0 && (errno==EACCES||errno==EPERM) && !strcmp(target.root,"/data") && !strcmp(destination,"homebrew")) {
+        pthread_mutex_lock(&lock);set_text(job,"phase","Repairing internal folder permissions");pthread_mutex_unlock(&lock);
+        if(storage_repair_permissions("homebrew",err,256))goto end;
+        dest=local_parent(root,destination_path,leaf,target.device);
+    }
     if (dest < 0) { snprintf(err, 256, "Cannot create/open destination folder: %s", strerror(errno)); goto end; }
     if (!fstatat(dest, name, &st, AT_SYMLINK_NOFOLLOW) || errno != ENOENT) {
         strcpy(err, "Destination name already exists. Existing games are never replaced."); goto end;
@@ -695,6 +701,11 @@ static int copy_game(RemoteSource *s, cJSON *work, char *err, bool *destroyed) {
     if(fstatat(root,".atmosphere-smb-staging",&stage_status,AT_SYMLINK_NOFOLLOW)<0 && errno==ENOENT)
         (void)renameat(root,".orbit-smb-staging",root,".atmosphere-smb-staging");
     stage = directory_at(root, ".atmosphere-smb-staging", target.device);
+    if(stage<0 && (errno==EACCES||errno==EPERM) && !strcmp(target.root,"/data")) {
+        pthread_mutex_lock(&lock);set_text(job,"phase","Repairing internal staging permissions");pthread_mutex_unlock(&lock);
+        if(storage_repair_permissions(".atmosphere-smb-staging",err,256))goto end;
+        stage=directory_at(root,".atmosphere-smb-staging",target.device);
+    }
     if (stage < 0) { snprintf(err, 256, "Cannot write destination staging folder: %s", strerror(errno)); goto end; }
     item = directory_at(stage, json_text(work, "id"), target.device);
     if (item < 0) { snprintf(err,256,"Cannot open transfer staging item: %s (errno %d)",strerror(errno),errno); goto end; }
