@@ -35,9 +35,9 @@ Internal permission repair also requires etaHEN's ELF loader on port 9021. If `/
 
 ## Installation
 
-These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.07.zip` from the [release page](../../releases/tag/v2026.10.07). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
+These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.07.1.zip` from the [release page](../../releases/tag/v2026.10.07.1). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
 
-The permission-repair feature is newer than that release ZIP. Its new helper is shown in the layout below, but is not included in `v2026.10.07`; see the changelog for its validation and release status.
+The v2026.10.07.1 prerelease includes the permission helper. Build and regression tests passed; automatic repair still awaits console validation. See the changelog for details.
 
 1. Start your working etaHEN/kstuff session and ensure ShadowMountPlus is available.
 2. Extract the complete Atmosphere folder build on your computer. Keep its supplied directory structure and runtime files intact.

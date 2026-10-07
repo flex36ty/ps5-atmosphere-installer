@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — 2026-10-07
+## v2026.10.07.1 — 2026-10-07
 
 ### Internal-storage permission repair
 
@@ -14,7 +14,7 @@
 
 Close Atmosphere before replacing its backend. Install the matching `atmosphere_backend.prx` in `sce_module/` and `atmosphere_permissions.elf` beside `eboot.bin`. Preserve `atmosphere-state`.
 
-The existing `v2026.10.07` release ZIP predates this change and does not include the permission helper. These changes are currently available in source; console validation and an updated binary release are pending.
+The existing `v2026.10.07` release ZIP predates this change and does not include the permission helper. The updated install ZIP is attached to the v2026.10.07.1 prerelease. Build and regression checks passed; console validation of automatic repair is still pending.
 
 ### Validation
 
