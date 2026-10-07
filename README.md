@@ -36,9 +36,9 @@ Internal permission repair also requires etaHEN's ELF loader on port 9021. If `/
 
 ## Installation
 
-These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.07.1.zip` from the [release page](../../releases/tag/v2026.10.07.1). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
+These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.07.2.zip` from the [release page](https://github.com/flex36ty/ps5-atmosphere-installer/releases/tag/v2026.10.07.2). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
 
-The v2026.10.07.1 prerelease includes the permission helper. Build and regression tests passed; automatic repair still awaits console validation. See the changelog for details.
+The v2026.10.07.2 prerelease adds frosted cards, a continuous rounded selector, region tags, and transfer diagnostics, and retains the permission helper. Close Atmosphere before updating, preserve `atmosphere-state`, and rescan once for region metadata. Build and regression tests passed; automatic permission repair and the final selector adjustment still await console confirmation. See the changelog for details.
 
 1. Start your working etaHEN/kstuff session and ensure ShadowMountPlus is available.
 2. Extract the complete Atmosphere folder build on your computer. Keep its supplied directory structure and runtime files intact.

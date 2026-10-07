@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2026.10.07.2 — 2026-10-07
 
 ### Library appearance and metadata
 
@@ -20,7 +20,7 @@
 
 - Region parsing and bounded read-ahead safety tests passed, along with FTP and SMB integration checks.
 - Native UI rendering, build, signing, and module integrity checks passed. The latest rounded-selector UI was uploaded to the test PS5 and verified by readback SHA-256; on-console confirmation of this final visual adjustment is pending.
-- These changes are in source and the test-console build. The existing v2026.10.07.1 release ZIP does not include them.
+- Included in the v2026.10.07.2 install ZIP. Close Atmosphere before updating, preserve `atmosphere-state`, and rescan once to populate region metadata. The previous v2026.10.07.1 ZIP predates these changes.
 
 ## v2026.10.07.1 — 2026-10-07
 
