@@ -19,9 +19,9 @@ PS5_FS_WRAPS := -Wl,--wrap=openat -Wl,--wrap=mkdirat -Wl,--wrap=fstatat -Wl,--wr
 build/generated/network.h build/generated/launcher.h &: tools/embed-launcher.py config/network.json launcher/sce_sys/param.json launcher/sce_sys/icon0.png
 	python3 tools/embed-launcher.py
 host: build/atmosphere-host
-build/atmosphere-host: $(SOURCES) backend/atmosphere.h backend/image_metadata.h $(GENERATED)
+build/atmosphere-host: $(SOURCES) backend/atmosphere.h backend/image_metadata.h backend/game_region.h backend/copy_pipeline.h $(GENERATED)
 	$(HOST_CC) $(CPPFLAGS) $(CFLAGS) -DATMOSPHERE_DESKTOP $(SOURCES) -o $@ $(LDFLAGS) -lsmb2 -lcurl -lmicrohttpd -lssl -lcrypto -lz -lpthread -lm $(LDLIBS)
-build/atmosphere-test: $(SOURCES) backend/atmosphere.h backend/image_metadata.h $(GENERATED)
+build/atmosphere-test: $(SOURCES) backend/atmosphere.h backend/image_metadata.h backend/game_region.h backend/copy_pipeline.h $(GENERATED)
 	$(HOST_CC) $(CPPFLAGS) $(CFLAGS) -DATMOSPHERE_DESKTOP -DATMOSPHERE_TEST $(SOURCES) -o $@ $(LDFLAGS) -lsmb2 -lcurl -lmicrohttpd -lssl -lcrypto -lz -lpthread -lm $(LDLIBS)
 payload: build/atmosphere.elf
 # The runtime is the copy saved on the console for payload managers to start.

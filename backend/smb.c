@@ -29,7 +29,8 @@
 #define COPY_READ (1024U * 1024U)
 #define COPY_DEPTH 4U
 #define ARTWORK_BUDGET (64U * 1024 * 1024)
-#define METADATA_READER_VERSION 5
+#define METADATA_READER_VERSION 6
+#include "game_region.h"
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
 static pthread_t thread;
@@ -250,6 +251,9 @@ static bool apply_param(cJSON *g, const unsigned char *data) {
         if (*title && strlen(title) < 256) { set_text(g, "title", title); found = true; }
         const char *id = json_text(meta, "titleId");
         if (*id && strlen(id) < 32) set_text(g, "titleId", id);
+        const char *content=json_text(meta,"contentId");
+        const char *region=game_region(content);
+        if(*region && (!*id || (strlen(id)==9 && !strncmp(content+7,id,9))))set_text(g,"region",region);
         const char *fw=json_text(meta,"requiredSystemSoftwareVersion");
         if(strlen(fw)==18 && fw[0]=='0' && (fw[1]=='x'||fw[1]=='X')) {
             bool valid=true;
@@ -316,7 +320,7 @@ static bool cached_metadata(cJSON *g) {
             json_int(old, "mtimeNs") != json_int(g, "mtimeNs") ||
             json_int(old, "metadataReader") != METADATA_READER_VERSION) continue;
         if (strcmp(json_text(old,"metadataStatus"),"Embedded metadata")) continue;
-        const char *keys[] = {"title", "titleId", "cover", "metadataStatus", "metadataReader", "minimumFirmware", "backportFiles"};
+        const char *keys[] = {"title", "titleId", "cover", "metadataStatus", "metadataReader", "minimumFirmware", "backportFiles", "region"};
         for (size_t i = 0; i < sizeof keys / sizeof keys[0]; i++) {
             const cJSON *value = cJSON_GetObjectItemCaseSensitive(old, keys[i]);
             if (!value) continue;
@@ -490,6 +494,7 @@ static bool same_file(const struct smb2_stat_64 *st, const cJSON *f) {
         st->smb2_mtime_nsec == (uint64_t)json_int(f, "mtimeNs");
 }
 typedef struct { bool ready; int status; uint32_t size; } CopyRead;
+#include "copy_pipeline.h"
 static void copy_read_done(struct smb2_context *s, int status, void *data, void *opaque) {
     (void)s; (void)data; CopyRead *r = opaque; r->status = status; r->ready = true;
 }
@@ -537,6 +542,12 @@ static int copy_read_batch(RemoteSource *s,RemoteFile *file,unsigned char *data,
     if(*destroyed)remote_forget_smb(s);
     return rc;
 }
+typedef struct {RemoteSource *s;RemoteFile *file;uint32_t chunk;bool *destroyed;double seconds;} CopyReader;
+static int copy_fetch(void *opaque,unsigned char *data,uint32_t length,uint64_t offset) {
+    CopyReader *r=opaque;double start=monotonic_seconds();
+    int n=copy_read_batch(r->s,r->file,data,r->chunk,offset,length,r->destroyed);
+    r->seconds+=monotonic_seconds()-start;return n;
+}
 static int copy_file(RemoteSource *s, const char *remote, int parent, const char *name,
                      const cJSON *f, uint64_t *done, Job *target, char *err, bool *destroyed) {
     RemoteFile *in = remote_open(s, remote, O_RDONLY);
@@ -546,7 +557,11 @@ static int copy_file(RemoteSource *s, const char *remote, int parent, const char
     uint32_t chunk = remote_max_read(s);
     if (!chunk || chunk > COPY_READ) chunk = COPY_READ;
     uint32_t capacity = chunk * COPY_DEPTH;
-    unsigned char *data = NULL, *old = NULL;
+    unsigned char *data = NULL, *old = NULL, *ahead=NULL;
+    CopyPipeline pipeline;bool pipelined=false,used_pipeline=false;
+    CopyReader reader={s,in,chunk,destroyed,0};
+    double started=monotonic_seconds(),wait_seconds=0,write_seconds=0,hash_seconds=0,verify_started=0,verify_seconds=0;
+    uint64_t copied=0;bool smb_protocol=remote_smb_context(s)!=NULL;
     /* Native titles can have a smaller heap than payload builds. Keep the
      * pipeline, but reduce each batch when two full-size buffers do not fit. */
     for (;;) {
@@ -583,6 +598,14 @@ static int copy_file(RemoteSource *s, const char *remote, int parent, const char
                  (long long)st.st_size,(unsigned long long)before.smb2_size); goto end;
     }
     if (!EVP_DigestInit_ex(digest, EVP_sha256(), NULL)) { strcpy(err,"Cannot initialize SHA-256 transfer verification."); goto end; }
+    /* The reader exclusively owns the remote context until joined. Allocation
+     * or thread failure falls back to the original synchronous transfer. */
+    /* Console read-ahead regressed observed throughput. Keep the proven native
+     * path until on-device phase timings justify enabling concurrency again. */
+    if(atmosphere.desktop && before.smb2_size>capacity) {
+        ahead=malloc(capacity);
+        if(ahead && !copy_pipeline_start(&pipeline,data,ahead,capacity,before.smb2_size,copy_fetch,&reader))pipelined=used_pipeline=true;
+    }
     uint64_t offset = 0;
     double speed_start = monotonic_seconds();
     uint64_t speed_bytes = 0;
@@ -590,12 +613,14 @@ static int copy_file(RemoteSource *s, const char *remote, int parent, const char
     while (offset < before.smb2_size) {
         if (halted()) goto end;
         uint64_t remaining = before.smb2_size - offset;
-        int n = copy_read_batch(s, in, data, chunk, offset, remaining < capacity ? (uint32_t)remaining : capacity, destroyed);
+        unsigned char *block=data;double tick=monotonic_seconds();
+        int n = pipelined?copy_pipeline_take(&pipeline,&block):copy_fetch(&reader,block,remaining < capacity ? (uint32_t)remaining : capacity,offset);
+        wait_seconds+=monotonic_seconds()-tick;
         if (n <= 0) { strcpy(err, "Server read failed. Check the connection and resume."); goto end; }
         /* Compare every existing byte before trusting an interrupted copy. */
         size_t prefix = offset < (uint64_t)st.st_size ? (size_t)((uint64_t)st.st_size - offset) : 0;
         if (prefix > (size_t)n) prefix = (size_t)n;
-        if (prefix && (pread(out, old, prefix, (off_t)offset) != (ssize_t)prefix || memcmp(old, data, prefix))) {
+        if (prefix && (pread(out, old, prefix, (off_t)offset) != (ssize_t)prefix || memcmp(old, block, prefix))) {
             strcpy(err, "Partial file differs from the source. Start a new copy."); goto end;
         }
         if ((size_t)n > prefix) {
@@ -606,13 +631,19 @@ static int copy_file(RemoteSource *s, const char *remote, int parent, const char
                 }
                 storage_checked = check_time;
             }
+            tick=monotonic_seconds();
             if (lseek(out, (off_t)(offset + prefix), SEEK_SET) < 0 ||
-                write_all(out, data + prefix, (size_t)n - prefix)) {
+                write_all(out, block + prefix, (size_t)n - prefix)) {
                 strcpy(err, "Destination disconnected, full, or not writable. Reconnect and resume."); goto end;
             }
+            write_seconds+=monotonic_seconds()-tick;
         }
-        if (!EVP_DigestUpdate(digest, data, (size_t)n)) goto end;
+        tick=monotonic_seconds();
+        if (!EVP_DigestUpdate(digest, block, (size_t)n)) goto end;
+        hash_seconds+=monotonic_seconds()-tick;
+        if(pipelined)copy_pipeline_release(&pipeline);
         offset += (uint64_t)n; *done += (uint64_t)n;
+        copied=offset;
         speed_bytes += (uint64_t)n;
         double now = monotonic_seconds();
         if (now - progress_updated >= 0.1 || offset == before.smb2_size) {
@@ -627,6 +658,8 @@ static int copy_file(RemoteSource *s, const char *remote, int parent, const char
         pthread_mutex_unlock(&lock);
         }
     }
+    if(pipelined){copy_pipeline_finish(&pipeline);pipelined=false;}
+    verify_started=monotonic_seconds();
     pthread_mutex_lock(&lock); transfer_speed = 0; set_text(job, "phase", "Verifying"); pthread_mutex_unlock(&lock);
     if (remote_fstat(s, in, &after) || !same_file(&after, f) || fsync(out)) {
         strcpy(err, "Source changed or destination could not be flushed."); goto end;
@@ -644,9 +677,35 @@ static int copy_file(RemoteSource *s, const char *remote, int parent, const char
         alen != blen || memcmp(a, b, alen)) { strcpy(err, "Destination SHA-256 verification failed."); goto end; }
     rc = 0;
 end:
+    if(pipelined)copy_pipeline_finish(&pipeline);
+    if(verify_started)verify_seconds=monotonic_seconds()-verify_started;
+    /* Persist diagnostics with the job as well: native log creation can fail. */
+    pthread_mutex_lock(&lock);
+    cJSON *timing=cJSON_CreateObject();
+    if(timing){
+        cJSON_AddStringToObject(timing,"protocol",smb_protocol?"smb":"ftp");
+        cJSON_AddBoolToObject(timing,"readAhead",used_pipeline);
+        cJSON_AddNumberToObject(timing,"bufferBytes",capacity);
+        cJSON_AddNumberToObject(timing,"bytes",(double)copied);
+        cJSON_AddNumberToObject(timing,"elapsedSeconds",monotonic_seconds()-started);
+        cJSON_AddNumberToObject(timing,"remoteSeconds",reader.seconds);
+        cJSON_AddNumberToObject(timing,"waitSeconds",wait_seconds);
+        cJSON_AddNumberToObject(timing,"writeSeconds",write_seconds);
+        cJSON_AddNumberToObject(timing,"hashSeconds",hash_seconds);
+        cJSON_AddNumberToObject(timing,"verifySeconds",verify_seconds);
+        cJSON_AddNumberToObject(timing,"result",rc);
+        cJSON_DeleteItemFromObjectCaseSensitive(job,"transferProfile");
+        cJSON_AddItemToObject(job,"transferProfile",timing);
+    }
+    pthread_mutex_unlock(&lock);
+    /* One bounded record per file, no server paths or credentials. */
+    char profile[512];int length=snprintf(profile,sizeof profile,"protocol=%s pipeline=%d buffer=%u bytes=%llu elapsed=%.3f remote=%.3f wait=%.3f write=%.3f hash=%.3f verify=%.3f result=%d\n",
+        smb_protocol?"smb":"ftp",used_pipeline,capacity,(unsigned long long)copied,monotonic_seconds()-started,reader.seconds,wait_seconds,write_seconds,hash_seconds,verify_seconds,rc);
+    int logfd=openat(atmosphere.state_fd,"transfer-profile.log",O_WRONLY|O_CREAT|O_APPEND|O_NOFOLLOW,0600);
+    if(logfd>=0){struct stat logst;if(!fstat(logfd,&logst)&&S_ISREG(logst.st_mode)&&logst.st_size<65536)(void)write(logfd,profile,(size_t)length);close(logfd);}
     if (out >= 0) close(out);
     remote_close(s, in);
-    free(data); free(old); EVP_MD_CTX_free(digest); EVP_MD_CTX_free(verify);
+    free(data); free(old); free(ahead); EVP_MD_CTX_free(digest); EVP_MD_CTX_free(verify);
     return rc;
 }
 int storage_repair_permissions(const char *name,char *error,size_t cap);

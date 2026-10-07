@@ -40,10 +40,13 @@ with tempfile.TemporaryDirectory() as tmp, Server(('127.0.0.1',0),Handler) as ft
         embedded=next(g for g in state['games'] if g['filename']=='embedded.exfat');assert embedded.get('cover'),embedded
         assert embedded.get('minimumFirmware')=='12.60',embedded
         assert embedded.get('backportFiles') is True,embedded
+        assert embedded.get('region')=='EUR',embedded
         folder_meta=next(g for g in state['games'] if g['filename']=='Folder Game')
         assert not folder_meta.get('minimumFirmware') and not folder_meta.get('backportFiles'),folder_meta
+        assert not folder_meta.get('region'),folder_meta
         action('scan');cached=idle()
         cached_image=next(g for g in cached['games'] if g['filename']=='embedded.exfat')
+        assert cached_image.get('region')=='EUR',cached_image
         assert cached_image.get('metadataCached') and cached_image.get('minimumFirmware')=='12.60' and cached_image.get('backportFiles'),cached_image
         state=cached
         for game in state['games']:
@@ -54,6 +57,10 @@ with tempfile.TemporaryDirectory() as tmp, Server(('127.0.0.1',0),Handler) as ft
                 (root/'dest/.atmosphere-smb-staging').rename(root/'dest/.orbit-smb-staging')
                 ftp_adapter_test.DELAY=0;action('resume')
             result=idle();assert result['job']['status']=='complete',result;assert result['job']['verification']=='sha256'
+            profile=result['job']['transferProfile']
+            assert profile['result']==0 and profile['bytes']>0 and profile['remoteSeconds']>=0,profile
+            saved=json.loads((root/'state/smb-state.json').read_text())
+            assert saved['job']['transferProfile']==profile,'Transfer timings were not persisted'
             if game['filename']=='game #1.exfat':
                 assert (root/'dest/.atmosphere-smb-staging').is_dir()
                 assert not (root/'dest/.orbit-smb-staging').exists()

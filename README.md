@@ -21,6 +21,7 @@ The current application uses a native OpenGL interface and an in-process C backe
 - Transfer progress, speed, pause/resume, and SHA-256 verification.
 - Installed-game detection by metadata title ID, with installed-source deletion through ShadowMountPlus.
 - Minimum firmware display when present in metadata. The Backported label indicates detected `fakelib`/`fakelib2` content; it does not guarantee compatibility.
+- Subdued metadata tags and short region labels derived from a valid game content ID. Region is a content territory, not a guarantee of language support or region locking. Rescan after updating to populate the new field; unavailable regions show Unknown.
 - ShadowMountPlus rescan requests after transfers. Detection may complete after Atmosphere closes.
 
 ## Requirements and status

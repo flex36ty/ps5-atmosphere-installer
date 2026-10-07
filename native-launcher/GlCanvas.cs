@@ -60,6 +60,26 @@ internal sealed unsafe class GlCanvas : IDisposable
     public void Clear(Color color){if(_opened)((delegate* unmanaged<uint,void>)_api.Begin)(color.Value);else _fallback.Clear(color);}
     public void FillRoundedRect(int x,int y,int w,int h,int radius,Color color)=>Rect(x,y,w,h,radius,color,color);
     public void FillVerticalGradient(int x,int y,int w,int h,Color top,Color bottom)=>Rect(x,y,w,h,0,top,bottom);
+    public void FillRoundedGradient(int x,int y,int w,int h,int radius,Color top,Color bottom)=>Rect(x,y,w,h,radius,top,bottom);
+    public void StrokeRoundedRect(int x,int y,int w,int h,int radius,int thickness,Color color){
+        int r=Math.Min(radius,Math.Min(w,h)/2),stroke=Math.Min(thickness,r);
+        FillRoundedRect(x+r,y,w-2*r,stroke,0,color);
+        FillRoundedRect(x+r,y+h-stroke,w-2*r,stroke,0,color);
+        FillRoundedRect(x,y+r,stroke,h-2*r,0,color);
+        FillRoundedRect(x+w-stroke,y+r,stroke,h-2*r,0,color);
+        // Join all four edges with an annular quarter-circle, leaving the center clear.
+        for(int row=0;row<r;row++){
+            float dy=r-row-.5f;
+            float outer=(float)Math.Sqrt(r*r-dy*dy);
+            int innerRadius=r-stroke;
+            float inner=dy<innerRadius?(float)Math.Sqrt(innerRadius*innerRadius-dy*dy):0;
+            float width=outer-inner;
+            Rect(x+r-outer,y+row,width,1,0,color,color);
+            Rect(x+w-r+inner,y+row,width,1,0,color,color);
+            Rect(x+r-outer,y+h-1-row,width,1,0,color,color);
+            Rect(x+w-r+inner,y+h-1-row,width,1,0,color,color);
+        }
+    }
     private void Rect(float x,float y,float w,float h,float radius,Color top,Color bottom){
         top=Tint(top);bottom=Tint(bottom);
         if(_opened)((delegate* unmanaged<float,float,float,float,float,uint,uint,void>)_api.Rect)(x,y,w,h,radius,top.Value,bottom.Value);

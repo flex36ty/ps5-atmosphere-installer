@@ -128,6 +128,18 @@ internal sealed class Launcher : ProsperoApp
         if(id.Length!=9 || !(id.StartsWith("PPSA",StringComparison.OrdinalIgnoreCase)||id.StartsWith("CUSA",StringComparison.OrdinalIgnoreCase)) || !id.Skip(4).All(c=>c>='0'&&c<='9'))return "Install status unknown";
         var index=Get(Smb,"installed");return Flag(index,"checking")?"Checking installation…":Flag(index,"complete")?"Not installed":"Install status unknown";
     }
+    // Tag fills blended 30% toward the panel background; text keeps its contrast.
+    private static readonly Color TagId=Color.FromRgb(41,60,64),TagFirmware=Color.FromRgb(64,62,56),
+        TagFormat=Color.FromRgb(55,55,74),TagBackport=Color.FromRgb(66,56,55),TagSize=Color.FromRgb(42,62,75),
+        TagRegion=Color.FromRgb(48,59,78),TagNeutral=Color.FromRgb(43,55,69),TagInstalled=Color.FromRgb(44,63,58);
+    private static string RegionLabel(JsonElement game)=>Text(game,"region") is "US" or "EUR" or "JPN" or "ASIA" or "KOR" ? Text(game,"region") : "Unknown";
+    private static void MetadataTag(GlCanvas s,int x,int y,int width,string text,Color fill) {
+        // A faint translucent surface and top edge keep tags soft on either panel.
+        s.FillRoundedRect(x,y,width,33,9,Color.White.WithAlpha(6));
+        s.FillRoundedRect(x,y,width,33,9,fill.WithAlpha(18));
+        s.FillRoundedRect(x+9,y,width-18,1,0,Color.White.WithAlpha(11));
+        s.DrawTextClipped(text,x+10,y+8,2,Color.FromRgb(184,196,209),width-20);
+    }
     private void StartCopy(bool allowDuplicate) {
         var drives=Array(Get(_data,"storage"));if(_drive<0||_drive>=drives.Length)return;
         Send("copy",("gameId",_copyId),("storageId",Text(drives[_drive],"id")),("usbRoot",_root&&Flag(drives[_drive],"external")),("allowDuplicate",allowDuplicate));_modal="";_tab=2;
@@ -290,24 +302,33 @@ internal sealed class Launcher : ProsperoApp
         _focusX+=(targetX-_focusX)*ease;_focusY+=(targetY-_focusY)*ease;
         s.SetLibraryClip(true);
         if(games.Length>0){
-            s.FillRoundedRect((int)_focusX-4,(int)(_focusY-_libraryScroll)-4,566,288,20,Blue.WithAlpha(32));
-            s.FillRoundedRect((int)_focusX,(int)(_focusY-_libraryScroll),558,280,16,Blue);
+            int fx=(int)_focusX,fy=(int)(_focusY-_libraryScroll);
+            var edge=Color.FromRgb(112,211,224);
+            // Keep the moving frame outside the card so its tint cannot hide it.
+            s.FillRoundedRect(fx-3,fy-3,564,286,22,edge.WithAlpha(24));
+            s.StrokeRoundedRect(fx,fy,558,280,22,4,edge);
         }
         for(int i=first;i<Math.Min(first+12,games.Length);i++) {
             int x=76+(i%3)*590,y=250+(i/3)*302-(int)_libraryScroll;
             if(y>=824 || y+280<=240)continue;
             bool selected=i==_selected;
-            s.FillRoundedRect(x,y+8,546,268,12,Color.Black.WithAlpha(45));
-            s.FillRoundedRect(x,y,546,268,12,selected?Color.FromRgb(31,48,65):Panel);
+            s.FillRoundedRect(x,y+5,546,268,18,Color.Black.WithAlpha(25));
+            // A tinted base keeps the wallpaper subdued beneath the frosted sheen.
+            s.FillRoundedRect(x,y,546,268,18,selected?Color.FromRgb(37,66,79).WithAlpha(235):Panel.WithAlpha(180));
+            s.FillRoundedGradient(x,y,546,268,18,
+                Color.FromRgb(204,217,229).WithAlpha(selected?(byte)52:(byte)27),
+                Color.FromRgb(130,151,174).WithAlpha(selected?(byte)20:(byte)9));
+            s.FillRoundedRect(x+18,y+1,510,1,0,Color.White.WithAlpha(selected?(byte)80:(byte)31));
             DrawCover(s,games[i],x+14,y+24);
             s.DrawTextClipped(Text(games[i],"title"),x+250,y+30,3,Color.White,280);
-            s.DrawTextClipped(Text(games[i],"titleId"),x+250,y+80,2,Blue,130);
-            s.DrawTextClipped("Min FW "+(Text(games[i],"minimumFirmware").Length>0?Text(games[i],"minimumFirmware"):"—"),x+386,y+80,2,Muted,150);
-            if(Flag(games[i],"backportFiles"))s.DrawTextClipped("Backported",x+386,y+115,2,Blue,150);
-            s.DrawTextClipped(Text(games[i],"format"),x+250,y+115,2,Muted,130);
-            s.DrawTextClipped(Size(Number(games[i],"size")),x+250,y+152,2,Muted,280);
-            s.DrawTextClipped(InstallStatus(games[i]),x+250,y+184,2,InstalledLocation(games[i]).Length>0?Blue:Muted,280);
-            if(selected) { s.DrawText("×  COPY",x+250,y+218,2,Blue); if(InstalledLocation(games[i]).Length>0)s.DrawText("R2  DELETE",x+386,y+218,2,Color.FromRgb(242,105,115)); }
+            MetadataTag(s,x+250,y+66,132,Text(games[i],"titleId"),TagId);
+            MetadataTag(s,x+390,y+66,144,"Min FW "+(Text(games[i],"minimumFirmware").Length>0?Text(games[i],"minimumFirmware"):"?"),TagFirmware);
+            MetadataTag(s,x+250,y+108,132,Text(games[i],"format").ToUpperInvariant(),TagFormat);
+            if(Flag(games[i],"backportFiles"))MetadataTag(s,x+390,y+108,144,"Backported",TagBackport);
+            MetadataTag(s,x+250,y+150,132,Size(Number(games[i],"size")),TagSize);
+            MetadataTag(s,x+390,y+150,144,RegionLabel(games[i]),TagRegion);
+            MetadataTag(s,x+250,y+192,284,InstallStatus(games[i]),InstalledLocation(games[i]).Length>0?TagInstalled:TagNeutral);
+            if(selected) { s.DrawText("× COPY",x+250,y+237,2,Blue); if(InstalledLocation(games[i]).Length>0)s.DrawText("R2 DELETE",x+390,y+237,2,Color.FromRgb(242,105,115)); }
         }
         s.SetLibraryClip(false);
         // Visible rows take priority; warm only the next two rows, using the same
@@ -501,9 +522,12 @@ internal sealed class Launcher : ProsperoApp
         s.DrawTextClipped(Text(game,"titleId"),280,818,3,Muted,320);
         s.DrawText("COPY TO STORAGE",674,242,2,Blue);
         s.DrawTextClipped(Text(game,"title").Length>0?Text(game,"title"):_copyTitle,674,284,4,Color.White,974);
-        s.DrawTextClipped(Text(game,"format").ToUpperInvariant()+"   /   "+Size(Number(game,"size")),674,346,3,Muted,970);
-        s.DrawTextClipped(InstallStatus(game),674,380,2,Blue,550);
-        s.DrawTextClipped("Min FW "+(Text(game,"minimumFirmware").Length>0?Text(game,"minimumFirmware"):"Unknown")+(Flag(game,"backportFiles")?"  ·  Backported":""),1230,380,2,Muted,415);
+        MetadataTag(s,674,332,160,Text(game,"format").ToUpperInvariant(),TagFormat);
+        MetadataTag(s,844,332,160,Size(Number(game,"size")),TagSize);
+        MetadataTag(s,1014,332,170,"Min FW "+(Text(game,"minimumFirmware").Length>0?Text(game,"minimumFirmware"):"?"),TagFirmware);
+        MetadataTag(s,1194,332,150,RegionLabel(game),TagRegion);
+        if(Flag(game,"backportFiles"))MetadataTag(s,1354,332,180,"Backported",TagBackport);
+        MetadataTag(s,674,372,970,InstallStatus(game),InstalledLocation(game).Length>0?TagInstalled:TagNeutral);
         s.DrawText("CHOOSE A DESTINATION",674,410,2,Muted);
         var drives=Array(Get(_data,"storage"));
         _drive=Math.Clamp(_drive,0,Math.Max(0,drives.Length-1));

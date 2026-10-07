@@ -14,7 +14,7 @@ import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = os.environ.get("IMAGE_PROBE", str(ROOT / "build/image-probe"))
-PARAM = json.dumps({"titleId": "PPSA12345", "requiredSystemSoftwareVersion": "0x1260000000000000", "localizedParameters": {"defaultLanguage": "en-GB", "en-GB": {"titleName": "Parser fixture"}}}).encode()
+PARAM = json.dumps({"titleId": "PPSA12345", "contentId": "EP0000-PPSA12345_00-ABCDEFGHIJKLMNOP", "requiredSystemSoftwareVersion": "0x1260000000000000", "localizedParameters": {"defaultLanguage": "en-GB", "en-GB": {"titleName": "Parser fixture"}}}).encode()
 ICON = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1sAAAAASUVORK5CYII=") + b"\0" * 900
 BLOCK = 65536
 DDS = b'DDS ' + bytes(160)
