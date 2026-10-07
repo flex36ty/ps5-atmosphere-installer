@@ -6,9 +6,7 @@ Atmosphere is a controller-driven PS5 homebrew application for browsing games on
 
 The current application uses a native OpenGL interface and an in-process C backend. Normal browsing and copying do not require a separately launched service ELF.
 
-![Atmosphere library showing game covers and controller navigation](docs/images/atmosphere-library.png)
-
-*Library screenshot from an earlier build; current labels and controls may differ.*
+[Watch the Atmosphere demo (WebM)](https://github.com/flex36ty/ps5-atmosphere-installer/releases/download/v2026.10.07.2/Atmosphere_20261008000625.webm)
 
 ## Features
 
