@@ -28,6 +28,49 @@ The working folder deployment should not be confused with the older experimental
 
 The delete workflow uses a bundled helper launched through etaHEN's local ELF loader on port 9021. Atmosphere closes before that helper deletes the confirmed installed source. Leave the app closed while deletion finishes.
 
+## Installation
+
+These instructions describe the tested **USB folder installation with ShadowMountPlus**. This repository currently contains source code, documentation, and the screenshot; its source ZIP is not a ready-to-run application. You need a complete, compatible `PPSA99005` folder build, including its runtime modules, before following these steps.
+
+1. Start your working etaHEN/kstuff session and ensure ShadowMountPlus is available.
+2. Extract the complete Atmosphere folder build on your computer. Keep its supplied directory structure and runtime files intact.
+3. Copy the entire `PPSA99005` folder into the USB drive's `homebrew` directory. The tested console path is `/mnt/usb0/homebrew/PPSA99005`. You can copy it with the drive connected to your computer or use the PS5's FTP server. The USB mount number may differ on your console.
+4. Check that `eboot.bin` is directly inside `PPSA99005`, rather than accidentally nested inside another `PPSA99005` directory. The layout should include:
+
+   ```text
+   homebrew/
+     PPSA99005/
+       eboot.bin
+       atmosphere_delete.elf
+       sce_sys/
+         param.json
+         icon0.png
+       sce_module/
+         atmosphere_backend.prx
+         atmosphere_ui.prx
+         ...other supplied runtime modules
+       ui/
+         ...supplied UI assets
+   ```
+
+5. Let ShadowMountPlus scan/register the folder using your existing setup. Close any running application if detection is pending.
+6. Launch **Atmosphere** from the PS5 home screen, then configure a server as described below.
+
+Do not install the folder ZIP through etaHEN's package installer. The current deployment uses the folder method; the older experimental `.pkg` is not the supported installation route.
+
+### Updating an existing installation
+
+Finish or pause transfers, then close Atmosphere fully with **Options** before replacing files. Back up the installation's `atmosphere-state` directory and preserve it when updating: it contains local settings and cache data. Copy the matching update files into the existing `PPSA99005` folder, keeping the supplied layout. For a module-only update, place `atmosphere_backend.prx` and `atmosphere_ui.prx` in `sce_module/`, and `atmosphere_delete.elf` at the application folder root. Use the matching files from the same build, then relaunch Atmosphere.
+
+### First server setup
+
+Open **Servers** and press **Square** to add a server. Choose SMB or FTP and enter the server IP address or hostname.
+
+- **SMB:** enter the share name separately from the folder. For example, `\\SERVER\games\ps5` uses share `games` and folder `ps5`. The default port is `445`. Guest shares can use blank credentials if the server permits guest access.
+- **FTP:** enter the folder relative to the FTP server's root, without a leading slash. Leave Share and Domain blank. The default port is `21`; blank username/password uses anonymous FTP if the server permits it. This is plain FTP, not SFTP.
+
+Save the server, highlight it, and press **Cross** so its status reads **ACTIVE**. Go to **Library** and press **Square** to scan. If the list stays empty, check the server path, permissions, and that the PS5 can reach the server on your network.
+
 ## Usage
 
 1. Launch Atmosphere from the registered folder application.
