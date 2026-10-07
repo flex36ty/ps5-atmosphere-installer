@@ -8,6 +8,10 @@ The current application uses a native OpenGL interface and an in-process C backe
 
 [Watch the Atmosphere demo (WebM)](https://github.com/flex36ty/ps5-atmosphere-installer/releases/download/v2026.10.07.2/Atmosphere_20261008000625.webm)
 
+![Atmosphere library with frosted game cards, metadata tags, and a rounded selection outline](docs/images/atmosphere-library.jpg)
+
+![Atmosphere copy dialog with game details and USB and internal storage destinations](docs/images/atmosphere-copy-dialog.jpg)
+
 ## Features
 
 - Multiple SMB and FTP servers, including anonymous/guest connections; activate, deactivate, edit, and remove saved servers.
