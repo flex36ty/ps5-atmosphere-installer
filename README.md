@@ -34,7 +34,7 @@ These instructions describe the tested **USB folder installation with ShadowMoun
 
 1. Start your working etaHEN/kstuff session and ensure ShadowMountPlus is available.
 2. Extract the complete Atmosphere folder build on your computer. Keep its supplied directory structure and runtime files intact.
-3. Copy the entire `PPSA99005` folder into the USB drive's `homebrew` directory. The tested console path is `/mnt/usb0/homebrew/PPSA99005`. You can copy it with the drive connected to your computer or use the PS5's FTP server. The USB mount number may differ on your console.
+3. Copy the entire `PPSA99005` folder into the USB drive's `homebrew` directory or /data/homebrew directory. The tested console path is `/mnt/usb0/homebrew/PPSA99005`. You can copy it with the drive connected to your computer or use the PS5's FTP server. The USB mount number may differ on your console.
 4. Check that `eboot.bin` is directly inside `PPSA99005`, rather than accidentally nested inside another `PPSA99005` directory. The layout should include:
 
    ```text
@@ -55,12 +55,6 @@ These instructions describe the tested **USB folder installation with ShadowMoun
 
 5. Let ShadowMountPlus scan/register the folder using your existing setup. Close any running application if detection is pending.
 6. Launch **Atmosphere** from the PS5 home screen, then configure a server as described below.
-
-Do not install the folder ZIP through etaHEN's package installer. The current deployment uses the folder method; the older experimental `.pkg` is not the supported installation route.
-
-### Updating an existing installation
-
-Finish or pause transfers, then close Atmosphere fully with **Options** before replacing files. Back up the installation's `atmosphere-state` directory and preserve it when updating: it contains local settings and cache data. Copy the matching update files into the existing `PPSA99005` folder, keeping the supplied layout. For a module-only update, place `atmosphere_backend.prx` and `atmosphere_ui.prx` in `sce_module/`, and `atmosphere_delete.elf` at the application folder root. Use the matching files from the same build, then relaunch Atmosphere.
 
 ### First server setup
 
@@ -98,44 +92,6 @@ Game files and configured server credentials are not included in this repository
 | Options | Close Atmosphere |
 
 Follow the on-screen hints for transfer and destination controls.
-
-## Source layout
-
-| Directory | Contents |
-| --- | --- |
-| `backend/` | Discovery, SMB/FTP adapters, transfers, storage, metadata, and installed-game integration |
-| `native-launcher/` | Native controller UI, OpenGL rendering, module bridge, and deletion helper |
-| `src/` | React interface used by the desktop/web development variant |
-| `tests/` | Backend and transfer regression tests |
-| `tools/` | Asset embedding, dependency, and build utilities |
-| `launcher/` | Legacy payload launcher support |
-
-## Building
-
-The native build currently depends on the development workspace's SharpProspero toolchain, .NET 10 NativeAOT, PS5 payload SDK, native dependencies, and locally supplied runtime modules. Some scripts contain workspace-specific paths. A clean clone is not yet a one-command native build.
-
-The current module build sequence, from the source directory, is:
-
-```sh
-# Linux / WSL, after configuring dependencies and paths
-bash native-launcher/compile-backend.sh
-bash native-launcher/preview-gl.sh
-bash native-launcher/native-ui/compile.sh
-```
-
-```powershell
-# Windows, with the configured SharpProspero tools
-./native-launcher/build-backend.ps1
-./native-launcher/native-ui/link.ps1
-```
-
-This produces `native-launcher/obj/backend/atmosphere_backend.prx`, `native-launcher/native-ui/obj/atmosphere_ui.prx`, and `native-launcher/obj/atmosphere_delete.elf`. These update an existing compatible folder deployment; they are not a complete standalone package by themselves.
-
-For the web interface, install Node dependencies with `npm ci`, run `npm run typecheck`, and build with `npx vite build`. `python3 tools/embed.py` generates embedded web assets after the required bootstrap inputs are present. [BUILDING.md](BUILDING.md) describes the legacy payload build, not the current native folder packaging workflow.
-
-## Validation
-
-The latest rename build passed TypeScript/Vite compilation, native module builds and signed-file integrity checks, source activation lifecycle tests, and FTP integration tests covering metadata, recursive copies, pause/resume, SHA-256 verification, and migration of older partial-transfer staging directories. Console behavior still needs to be checked after each deployed update.
 
 ## License and credits
 
