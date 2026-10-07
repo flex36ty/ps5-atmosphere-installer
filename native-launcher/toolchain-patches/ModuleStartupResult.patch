@@ -1,0 +1,20 @@
+--- a/tools/SharpProspero.Link/DynamicWriter.cs
++++ b/tools/SharpProspero.Link/DynamicWriter.cs
+@@ -994,11 +994,15 @@
+         // has no entry, so the loader runs its array directly and the setup routine has nothing left to
+         // do. The teardown routine returns at once either way, having nothing to undo.
+         if (kind == ModuleKind.Library)
+-            pltBytes[initOffset] = 0xC3; // ret
++        {
++            // PRX start/stop callbacks return an integer status to the module loader.
++            // A bare RET preserves an unspecified RAX value instead of reporting success.
++            new byte[] { 0x31, 0xC0, 0xC3 }.CopyTo(pltBytes, initOffset);
++        }
+         else
+             BuildInitWalker(initAddr, initArray.Address, initArray.Address + initArray.Size)
+                 .CopyTo(pltBytes.AsSpan(initOffset));
+-        pltBytes[initOffset + EntryStubSize] = 0xC3; // ret
++        new byte[] { 0x31, 0xC0, 0xC3 }.CopyTo(pltBytes, initOffset + EntryStubSize);
+ 
+         byte[] dynamicBytes = BuildDynamic(moduleRecords, libraryRecords, moduleInfoName,
+             dynsymAddr, dynstrAddr, (ulong)dynstrBytes.Length, hashAddr, (ulong)hashBytes.Length,

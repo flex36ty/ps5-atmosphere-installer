@@ -1,0 +1,21 @@
+--- a/tools/SharpProspero.Bindings.Generator/Program.cs
++++ b/tools/SharpProspero.Bindings.Generator/Program.cs
+@@ -488,9 +488,16 @@
+                 options.ExtraObjects.Add(ElfObjectReader.Read(CompatEmitter.BuildObject(payload ? ModuleKind.Executable : kind, payload), "sharpprospero_compat.o"));
+             if (!payload)
+                 foreach (StubCatalog.Entry entry in StubCatalog.Core)
++                {
++                    // Retail homebrew can use the system C runtime instead of an app-local libc.
++                    var target = HasFlag(args, "--system-libc") && entry.Library == "libc"
++                        ? entry with { Library = "libSceLibcInternal", ModuleVersion = 1,
++                            ModuleName = "libSceLibcInternal", Soname = "libSceLibcInternal.prx" }
++                        : entry;
+                     options.ExtraStubs.Add(StubLibrary.Parse(
+-                        PrxStubEmitter.BuildObject(entry.Library, entry.Exports, entry.ModuleVersion, entry.LibraryVersion, entry.ModuleName, entry.Soname),
+-                        entry.Library + ".prx"));
++                        PrxStubEmitter.BuildObject(target.Library, target.Exports, target.ModuleVersion, target.LibraryVersion, target.ModuleName, target.Soname),
++                        target.Library + ".prx"));
++                }
+         }
+ 
+         try

@@ -1,0 +1,36 @@
+Atmosphere servers
+
+Use SERVERS > Square to add a server, then Triangle to edit the active server.
+Highlight Protocol and press Cross to switch between SMB and FTP.
+Leave Port blank for SMB port 445 or FTP port 21.
+
+SMB: enter the share name and a folder relative to that share.
+FTP: leave Share and Domain blank. Enter the folder relative to the FTP server
+root, without a leading slash. Folder names are case-sensitive on many servers.
+Leave Username and Password blank for anonymous FTP. Otherwise enter the
+server's FTP credentials. Remember password is optional.
+
+FTP uses passive connections, MLSD listings, SIZE/MDTM metadata and REST/RETR
+file reads. This option is plain FTP, not SFTP. Sources are read-only.
+Scanning recognizes game folders, exFAT images and FFPFSC files. Local cover
+caching, internal/USB destinations, pause/resume checks and SHA-256 destination
+verification are shared with SMB. Large per-game backgrounds are not extracted.
+
+Example verified on the user's server:
+Protocol: FTP
+Server: 192.168.0.113
+Port: 21
+Folder: DATA2/ps5
+Username and Password: blank
+
+Existing SMB settings remain valid. The smb-state.json name and existing API
+routes are retained for compatibility; they now support both protocols.
+
+Installed-title detection
+Atmosphere checks title IDs in local folders and supported images, plus the
+current ShadowMount library. It scans storage roots, homebrew folders and saved
+custom destination folders. It refreshes on startup, library scans and completed
+copies. Refresh the library after manually moving or removing games.
+Artwork is not extracted by the installed-title scan. Missing/unreadable IDs
+show an unknown status. A matching title ID displays its location and requires
+Copy anyway confirmation; this never enables overwriting existing files.

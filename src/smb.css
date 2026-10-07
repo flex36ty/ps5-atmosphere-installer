@@ -1,0 +1,41 @@
+/* Artwork-first SMB library, with one controller target per game. */
+.smb-page { padding-top: 2.5rem; }
+.smb-source-bar { display: flex; align-items: end; gap: 1rem; margin: 1.5rem 0; }
+.smb-source-bar > div { flex: 1; }
+.smb-source-bar > button { min-height: 48px; }
+.smb-heading { padding: 2rem; border: 1px solid #829aff25; border-radius: 24px; background: radial-gradient(ellipse at top right, #5b52bf38, transparent 65%), linear-gradient(120deg, #17274890, #151b3280); }
+.smb-heading h1 { font-size: clamp(2rem, 3.7vw, 4rem); font-weight: 650; letter-spacing: -.045em; margin: .7rem 0; }
+.smb-heading > div > p:not(.eyebrow) { color: #c3cce0; }
+.smb-heading > button { display: flex; align-items: center; gap: .6rem; min-height: 48px; }
+.smb-library-meta { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 1.3rem; color: #b9c9e2; font-size: .85rem; }
+.smb-library-meta span { padding: .4rem .8rem; border: 1px solid #b6c9ff24; border-radius: 999px; background: #07101e55; overflow-wrap: anywhere; }
+.smb-toolbar { gap: 1rem; }
+.smb-toolbar > label { flex: 1; }
+.smb-toolbar input { min-height: 52px; background: #101a2c; }
+.smb-toolbar > button { min-height: 52px; }
+.smb-sort { min-width: 210px; }
+.smb-scan-status { color: #a3b4cf; margin-top: 1rem; font-size: .9rem; }
+.smb-grid { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2rem 1.5rem; margin: 1.5rem 0 3rem; }
+.smb-grid .smb-card { display: block; text-align: left; padding: 0; border-radius: 18px; background: #111c2d; border: 1px solid #b1c7f526; overflow: hidden; scroll-margin: 7rem 0 5rem; min-width: 0; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.smb-card .smb-art { display: grid; position: relative; overflow: hidden; }
+.smb-art img { aspect-ratio: 1; object-fit: cover; }
+.smb-card .smb-card-body { display: block; padding: 1.1rem; }
+.smb-card-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 1.12rem; font-weight: 650; line-height: 1.35; min-height: 2.7em; }
+.smb-card-meta { display: flex; justify-content: space-between; gap: .5rem; color: #aebed6; font-size: .8rem; margin-top: .8rem; }
+.smb-card-meta > span:first-child { color: #a8bbff; text-transform: uppercase; letter-spacing: .06em; }
+.smb-card-prompt { position: absolute; bottom: .8rem; left: .8rem; font-size: .85rem; font-weight: 600; border-radius: 999px; padding: .5rem .9rem; background: #0b142be8; border: 1px solid #ffffff55; opacity: 0; transform: translateY(5px); transition: opacity .18s, transform .18s; }
+.smb-grid .smb-card:hover, html:not(.pointer) .smb-grid .smb-card:focus { transform: translateY(-5px); background: #1b2942; border-color: #cfdbff; }
+html:not(.pointer) .smb-grid .smb-card:focus { box-shadow: 0 0 0 3px #fff, 0 0 0 7px #809dff77, 0 16px 35px #0008; }
+.smb-card:hover .smb-card-prompt, html:not(.pointer) .smb-card:focus .smb-card-prompt { opacity: 1; transform: none; }
+.smb-detail.modal { width: min(980px, 94vw); max-width: 980px; padding: 3.5rem 2rem 2rem; border: 1px solid #a9c3ff44; background: linear-gradient(135deg, #1b2944, #0d1424); }
+.smb-detail-layout { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1fr); gap: 2rem; align-items: center; }
+.smb-detail-layout > .smb-art { border-radius: 16px; overflow: hidden; }
+.smb-detail-info { min-width: 0; }
+.smb-detail-info h2 { font-size: clamp(1.5rem, 2.5vw, 2.6rem); line-height: 1.15; margin: .8rem 0; }
+.smb-detail-info > p { color: #b5c5dd; margin-bottom: 1.2rem; }
+.smb-detail-info .primary { width: 100%; min-height: 54px; }
+.smb-detail-info .smb-destination-note { font-size: .9rem; margin: .8rem 0 1.3rem; overflow-wrap: anywhere; }
+.smb-detail-info .smb-detail-filename { margin: 1.3rem 0 0; overflow-wrap: anywhere; font-size: .75rem; }
+@media (min-width: 1600px) { .smb-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .smb-heading { padding: 1.4rem; } .smb-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.2rem .85rem; } .smb-card .smb-card-body { padding: .85rem; } .smb-card-title { font-size: 1rem; } .smb-sort { min-width: 0; flex: 1; } .smb-detail-layout { grid-template-columns: 1fr; } .smb-detail-layout > .smb-art { width: 180px; margin: auto; } }
+@media (prefers-reduced-motion: reduce) { .smb-grid .smb-card, .smb-card-prompt { transition: none; } }

@@ -1,0 +1,18 @@
+{
+  "version": "0.4.1",
+  "channel": "beta",
+  "licenseCleared": true,
+  "localRegressionPassed": true,
+  "catalogLinksVerified": true,
+  "betaConsoleSmokePassed": false,
+  "betaLimitationsDocumented": true,
+  "consoleTestPassed": false,
+  "homeScreenLifecycleVerified": false,
+  "reason": "0.4.1 combines opt-in manager setup, Library and storage actions through the compatible ShadowMount API, and external artwork with fallbacks. Console checks are deferred by the owner; no PS5 access is authorized. Full transfer, Library actions, reboot/auto-start and broader firmware acceptance remain pending. The reported etaHEN toggle interaction is not diagnosed or claimed fixed.",
+  "catalogSourcesVerifiedOnConsole": false,
+  "betaConsoleCheckDeferred": {
+    "version": "0.4.1",
+    "authorizedByOwner": true,
+    "reason": "Owner requested shipping 0.4.1 with opt-in and Library changes while instructing us not to access the PS5 during other payload work."
+  }
+}

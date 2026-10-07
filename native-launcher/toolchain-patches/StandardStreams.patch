@@ -1,0 +1,19 @@
+diff --git a/tools/SharpProspero.Link/CompatEmitter.cs b/tools/SharpProspero.Link/CompatEmitter.cs
+index 26056b4..ab5ad65 100644
+--- a/tools/SharpProspero.Link/CompatEmitter.cs
++++ b/tools/SharpProspero.Link/CompatEmitter.cs
+@@ -3375,9 +3375,11 @@ public static class CompatEmitter
+     private static IReadOnlyList<CompatData> DataObjects =>
+     [
+         // The standard streams are published under their own names; the variables hold their addresses.
+-        new("stdin", "__stdinp"),
+-        new("stdout", "__stdoutp"),
+-        new("stderr", "__stderrp"),
++        // Atmosphere initializes these through fdopen in its native constructor.
++        // The bundled PS5 libc does not export the FreeBSD __std*p variables.
++        new("stdin", null),
++        new("stdout", null),
++        new("stderr", null),
+         // A module is started with no environment, so the list is empty.
+         new("environ", null),
+         // The marker the C module publishes to record that a module was linked against it. It carries

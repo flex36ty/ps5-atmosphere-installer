@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <SharpProsperoRoot>$(MSBuildThisFileDirectory)..\..\..\packaging-tools\SharpProspero</SharpProsperoRoot>
+  </PropertyGroup>
+  <Import Project="$(SharpProsperoRoot)/build/Prospero.App.props" />
+  <PropertyGroup>
+    <OutputType>Library</OutputType><TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14.0</LangVersion><Nullable>enable</Nullable><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Atmosphere.UI</AssemblyName><ProsperoModuleKind>Prx</ProsperoModuleKind>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);ATMOSPHERE_NATIVE_HOST</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Program.cs;../GlCanvas.cs;../NativeBackend.cs;../NativeExit.cs;../UiHost.cs" />
+    <ProjectReference Include="$(SharpProsperoRoot)/src/SharpProspero/SharpProspero.csproj" />
+  </ItemGroup>
+  <Import Project="$(SharpProsperoRoot)/build/Prospero.App.targets" />
+</Project>

@@ -1,0 +1,28 @@
+diff --git a/tools/SharpProspero.Packager/Program.cs b/tools/SharpProspero.Packager/Program.cs
+index ffbdd08..cdf8560 100644
+--- a/tools/SharpProspero.Packager/Program.cs
++++ b/tools/SharpProspero.Packager/Program.cs
+@@ -84,7 +84,7 @@ internal static class Program
+             // managed stack trace and nothing an author can act on, so it is named and turned into an
+             // exit code of its own; the folder output is unaffected and remains the way to get a module
+             // onto a console meanwhile.
+-            Console.Error.WriteLine($"The package could not be built: {ex.GetType().Name}: {ex.Message}");
++            Console.Error.WriteLine($"The package could not be built: {ex}");
+             Console.Error.WriteLine("  This is a limit of the packing step, not of the module. The module");
+             Console.Error.WriteLine("  folder itself is complete and can be copied to a console as it is.");
+             Console.Error.WriteLine("  Building through build-app.ps1 with -Output Folder skips this step.");
+diff --git a/tools/SharpProspero.Packager/SharpProspero.Packager.csproj b/tools/SharpProspero.Packager/SharpProspero.Packager.csproj
+index 891be22..67481d8 100644
+--- a/tools/SharpProspero.Packager/SharpProspero.Packager.csproj
++++ b/tools/SharpProspero.Packager/SharpProspero.Packager.csproj
+@@ -8,9 +8,7 @@
+   </PropertyGroup>
+ 
+   <ItemGroup>
+-    <Reference Include="LibProsperoPkg">
+-      <HintPath>LibProsperoPkg.dll</HintPath>
+-    </Reference>
++    <ProjectReference Include="../../../LibProsperoPKG/src/LibProsperoPkg/LibProsperoPkg.csproj" />
+   </ItemGroup>
+ 
+ </Project>

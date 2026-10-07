@@ -1,0 +1,7 @@
+FROM debian:trixie
+RUN apt-get update && apt-get install -y --no-install-recommends bash clang-19 lld-19 llvm-19 make ca-certificates curl unzip && rm -rf /var/lib/apt/lists/*
+RUN curl --fail --location --retry 3 https://github.com/ps5-payload-dev/sdk/releases/download/v0.43/ps5-payload-sdk.zip -o /tmp/sdk.zip && echo 'a9cc9929f21b2b2c5d5b309f3bab4997067c45281c0622cf4838b1aecba66fcb  /tmp/sdk.zip' | sha256sum -c - && unzip -q /tmp/sdk.zip -d /opt && rm /tmp/sdk.zip
+ENV PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk
+ENV LLVM_CONFIG=/usr/bin/llvm-config-19
+WORKDIR /work
+ENTRYPOINT ["make"]

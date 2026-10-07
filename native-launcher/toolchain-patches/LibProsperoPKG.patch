@@ -1,0 +1,61 @@
+diff --git a/src/LibProsperoPkg/PFS/ProsperoPs5InnerImageReader.cs b/src/LibProsperoPkg/PFS/ProsperoPs5InnerImageReader.cs
+index a1d8245..1795302 100644
+--- a/src/LibProsperoPkg/PFS/ProsperoPs5InnerImageReader.cs
++++ b/src/LibProsperoPkg/PFS/ProsperoPs5InnerImageReader.cs
+@@ -123,6 +123,16 @@ public static class ProsperoPs5InnerImageReader
+             int totalComp = (int)(nextRel - thisRel);
+             bool kraken = e.KdePredictor == 2;
+ 
++            // The writer emits one zero-fill marker for the entire gap before
++            // metadata, regardless of how many ublocks it spans. It consumes no
++            // payload bytes; the following RUN anchors the metadata stream.
++            if (e.KdePredictor == 4 && e.Even == 0 && e.Odd == 1 &&
++                evenComp == 8 && totalComp == 16 && next.IsRunBase)
++            {
++                uncompOff = fileEnd;
++                continue;
++            }
++
+             DecodeBlockInto(innerArr, onDisk, totalComp, evenComp, (int)uncompLen, kraken,
+                             mount, (int)uncompOff);
+ 
+diff --git a/src/LibProsperoPkg/PKG/ProsperoNapsLayout.cs b/src/LibProsperoPkg/PKG/ProsperoNapsLayout.cs
+index bbd909b..4c1f513 100644
+--- a/src/LibProsperoPkg/PKG/ProsperoNapsLayout.cs
++++ b/src/LibProsperoPkg/PKG/ProsperoNapsLayout.cs
+@@ -482,6 +482,20 @@ public static class ProsperoNapsLayout
+         // The fidx count is package-dependent (padding/metadata pseudo-entries), so derive it from the exact
+         // blob length rather than assuming NumFiles+1 (which only holds for some packages, e.g. DebugSettings).
+         int fidxCount = DeriveFidxEntryCount(counts, blob.Length);
++        // Six or twelve alignment bytes can masquerade as additional fidx
++        // entries. Recognize the builder's standard trailer before using the
++        // length heuristic, which remains necessary for other package shapes.
++        NapsSectionMap standard = SectionMap(counts);
++        long padding = blob.Length - standard.TotalSize;
++        long trailer = standard.UncompressedOffsetStartByFileIdx.Offset
++            + standard.UncompressedOffsetStartByFileIdx.Size - FileOffsetStride;
++        if (padding is >= 0 and < DefaultAlignment && trailer >= 0 &&
++            blob.Slice((int)trailer, FileOffsetStride).SequenceEqual(new byte[] { 1, 0, 0, 5, 6, 7 }))
++        {
++            bool zeroPadding = true;
++            foreach (byte b in blob[(int)standard.TotalSize..]) zeroPadding &= b == 0;
++            if (zeroPadding) fidxCount = counts.NumFileOffsetEntries;
++        }
+         return Parse(blob, counts, fidxCount);
+     }
+ 
+diff --git a/src/LibProsperoPkg/PKG/ProsperoNapsLayoutBuilder.cs b/src/LibProsperoPkg/PKG/ProsperoNapsLayoutBuilder.cs
+index c245459..107dab1 100644
+--- a/src/LibProsperoPkg/PKG/ProsperoNapsLayoutBuilder.cs
++++ b/src/LibProsperoPkg/PKG/ProsperoNapsLayoutBuilder.cs
+@@ -427,7 +427,9 @@ public static class ProsperoNapsLayoutBuilder
+         for (int g = 0; g < numGroups; g++)
+         {
+             var entry = new byte[ProsperoNapsLayout.U2cStride];
+-            int baseG = first[8 * g];
++            // Exact multiples of eight carry one trailing sentinel group. Its
++            // ublocks are beyond the image and all point to the terminator.
++            int baseG = 8 * g < numUBlocks ? first[8 * g] : numCblockInfo - 1;
+             bool hasNext = 8 * g + 8 < numUBlocks;
+             int nextBase = hasNext ? first[8 * g + 8] : 0;
+ 

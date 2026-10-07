@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <SharpProsperoRoot Condition="'$(SharpProsperoRoot)' == ''">$(MSBuildThisFileDirectory)..\..\packaging-tools\SharpProspero</SharpProsperoRoot>
+  </PropertyGroup>
+  <Import Project="$(SharpProsperoRoot)/build/Prospero.App.props" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14.0</LangVersion><Nullable>enable</Nullable><AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>Atmosphere</AssemblyName><ProsperoModuleName>eboot.bin</ProsperoModuleName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="preview/**/*.cs" />
+    <Compile Remove="native-ui/**/*.cs" />
+    <ProjectReference Include="$(SharpProsperoRoot)/src/SharpProspero/SharpProspero.csproj" />
+  </ItemGroup>
+  <Import Project="$(SharpProsperoRoot)/build/Prospero.App.targets" />
+</Project>
+

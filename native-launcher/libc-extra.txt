@@ -1,0 +1,4 @@
+fgetc
+vfscanf
+fdopen
+fopen

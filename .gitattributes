@@ -1,0 +1,3 @@
+# Left out of the release source archive (git archive): internal notes and tests, not needed to build.
+tests/ export-ignore
+catalog/source-candidates.json export-ignore

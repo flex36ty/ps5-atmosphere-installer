@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+<PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><AllowUnsafeBlocks>true</AllowUnsafeBlocks><Nullable>enable</Nullable><StartupObject>Preview</StartupObject><DefineConstants>$(DefineConstants);ATMOSPHERE_GL_PREVIEW</DefineConstants></PropertyGroup>
+<ItemGroup><Compile Include="../Program.cs"/><Compile Include="../NativeBackend.cs"/><Compile Include="../NativeExit.cs"/><Compile Include="../EtaHenAccess.cs"/><Reference Include="SharpProspero"><HintPath>../../../packaging-tools/SharpProspero/src/SharpProspero/bin/Release/net10.0/SharpProspero.dll</HintPath></Reference></ItemGroup>
+<ItemGroup><Compile Include="../GlCanvas.cs"/></ItemGroup>
+</Project>

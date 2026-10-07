@@ -1,0 +1,31 @@
+diff --git a/tools/SharpProspero.Link/DynamicWriter.cs b/tools/SharpProspero.Link/DynamicWriter.cs
+index ab8d89d..d224ffe 100644
+--- a/tools/SharpProspero.Link/DynamicWriter.cs
++++ b/tools/SharpProspero.Link/DynamicWriter.cs
+@@ -821,6 +821,14 @@ public static class DynamicWriter
+             boundImports[i].GotAddress = gotAddr + 24 + (ulong)i * 8;
+             boundImports[i].PltAddress = pltAddr + 16 + (ulong)i * 16;
+         }
++        // A module may be bound lazily. Match the native PLT resolver sequence:
++        // push the loader's context, then jump to its resolver. Each unresolved
++        // GOT slot points to its own push-index/jump-PLT0 tail, not image offset 0.
++        pltBytes[0] = 0xFF; pltBytes[1] = 0x35;
++        BinaryPrimitives.WriteInt32LittleEndian(pltBytes.AsSpan(2), checked((int)((long)(gotAddr + 8) - (long)(pltAddr + 6))));
++        pltBytes[6] = 0xFF; pltBytes[7] = 0x25;
++        BinaryPrimitives.WriteInt32LittleEndian(pltBytes.AsSpan(8), checked((int)((long)(gotAddr + 16) - (long)(pltAddr + 12))));
++        pltBytes[12] = 0x0F; pltBytes[13] = 0x1F; pltBytes[14] = 0x40;
+         // Binding records and the stubs that jump through them.
+         for (int i = 0; i < boundImports.Count; i++)
+         {
+@@ -831,6 +839,11 @@ public static class DynamicWriter
+             pltBytes[p] = 0xFF; pltBytes[p + 1] = 0x25;
+             long disp = (long)boundImports[i].GotAddress - (long)(boundImports[i].PltAddress + 6);
+             BinaryPrimitives.WriteInt32LittleEndian(pltBytes.AsSpan(p + 2), unchecked((int)disp));
++            pltBytes[p + 6] = 0x68;
++            BinaryPrimitives.WriteInt32LittleEndian(pltBytes.AsSpan(p + 7), i);
++            pltBytes[p + 11] = 0xE9;
++            BinaryPrimitives.WriteInt32LittleEndian(pltBytes.AsSpan(p + 12), checked((int)((long)pltAddr - (long)(boundImports[i].PltAddress + 16))));
++            BinaryPrimitives.WriteUInt64LittleEndian(gotBytes.AsSpan(24 + i * 8), boundImports[i].PltAddress + 6);
+         }
+ 
+         // Section address resolver and application relocation (imports through their PLT entry,

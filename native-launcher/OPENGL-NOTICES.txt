@@ -1,0 +1,31 @@
+Atmosphere OpenGL UI
+
+The screen layout and SMB application remain Atmosphere's. The new native
+graphics module uses PS5 OpenGL SDK 1.0.1 (GPL-3.0-or-later), by
+BlackBearReloaded and contributors, and the third-party components listed
+in ui/licenses/ps5-opengl/THIRD_PARTY_NOTICES.md in the packaged application.
+SDK source and release: https://github.com/blackbearreloaded/ps5-opengl/tree/v1.0.1
+The SDK download is verified against the release SHA-256 file.
+The required native heap helper is from that same tag.
+
+Montserrat Medium is by the Montserrat Project Authors, under the SIL Open
+Font License; see ui/OFL.txt. Source:
+https://github.com/JulietaUla/Montserrat/blob/master/fonts/ttf/Montserrat-Medium.ttf
+Font SHA256: dae47428bb041f9716604e0e07b5b0c8585b3bdd8183362f75c69fe7bb3cfaf4
+
+stb_truetype by Sean Barrett and contributors is used under its public-domain
+option (also available under MIT). The full dual-license notice is retained
+in native-launcher/gl-assets/stb_truetype.h. Pinned source:
+https://github.com/nothings/stb/blob/f0569113c93ad095470c54bf34a17b36646bbbb5/stb_truetype.h
+
+Build: compile-gl.sh, build-gl.ps1, compile-linux.sh, then
+build-runtime-test.ps1 -SystemLibc -Runtime <original PPSA99177 libc.prx>.
+Host verification: preview-gl.sh uses Mesa EGL offscreen to run the same
+shaders, font atlas, cover uploads, layout and refresh regression tests.
+Host tests do not establish PS5 graphics-driver or firmware compatibility.
+
+The app bundles atmosphere_gl.prx and ui/Montserrat-Medium.ttf. No graphics
+service, separate ELF payload, browser, or network port is required.
+If GL initialization returns an error, the existing software display is
+used with a visible 'OpenGL unavailable' diagnostic. GPU fatal errors cannot
+be recovered by that fallback.
