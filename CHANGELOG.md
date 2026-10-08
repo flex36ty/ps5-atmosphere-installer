@@ -9,7 +9,7 @@
 - Corrected the password keyboard to use Basic Latin with password masking. Keyboard errors remain visible instead of being overwritten by status updates.
 - WebDAV local integration and malformed-listing/range tests passed; authenticated HEAD and beginning/middle/end reads succeeded on the test Apache server. PS5 end-to-end WebDAV validation is pending.
 - Native builds, signing, and integrity checks passed. The WebDAV modules and subsequent password-keyboard fix were uploaded to the test PS5 and verified by SHA-256 readback; console confirmation of password entry is pending.
-- Includes the complete matching folder build and the Yxml MIT license. Close Atmosphere before updating and preserve `atmosphere-state`. Released as a prerelease; no broader firmware compatibility claim is made.
+- Includes the complete matching folder build and the Yxml MIT license. Close Atmosphere before updating and preserve `atmosphere-state`. Released as a release; no broader firmware compatibility claim is made.
 
 ## v2026.10.08 — 2026-10-08
 
@@ -34,7 +34,7 @@
 - Install the complete matching folder build: the scrolling-text graphics interface requires the updated `eboot.bin` together with `atmosphere_ui.prx` and `atmosphere_backend.prx`. Do not mix these modules with an older executable.
 - Close Atmosphere before updating and preserve `atmosphere-state`. The ZIP includes runtime files and helpers, without saved settings or credentials.
 - SMB/FTP integration checks, targeted second-server editing tests, native UI preview checks, and module signing/integrity checks passed. The final backend and UI were uploaded to the test PS5 and verified by SHA-256 readback; user confirmation of the final editing fix is pending.
-- Released as a prerelease for the existing firmware 12.70 test setup; broader firmware compatibility remains unverified.
+- Released as a release for the existing firmware 12.70 test setup; broader firmware compatibility remains unverified.
 
 ## v2026.10.07.2 — 2026-10-07
 
@@ -72,7 +72,7 @@
 
 Close Atmosphere before replacing its backend. Install the matching `atmosphere_backend.prx` in `sce_module/` and `atmosphere_permissions.elf` beside `eboot.bin`. Preserve `atmosphere-state`.
 
-The existing `v2026.10.07` release ZIP predates this change and does not include the permission helper. The updated install ZIP is attached to the v2026.10.07.1 prerelease. Build and regression checks passed; console validation of automatic repair is still pending.
+The existing `v2026.10.07` release ZIP predates this change and does not include the permission helper. The updated install ZIP is attached to the v2026.10.07.1 release. Build and regression checks passed; console validation of automatic repair is still pending.
 
 ### Validation
 
