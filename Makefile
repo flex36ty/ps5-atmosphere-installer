@@ -1,5 +1,6 @@
 .DEFAULT_GOAL := host
 SOURCES := $(wildcard backend/*.c) .deps/cjson/cJSON.c
+REMOTE_HEADERS := backend/remote_source.h backend/webdav_listing.h vendor/yxml/yxml.c vendor/yxml/yxml.h
 CPPFLAGS := -D_FILE_OFFSET_BITS=64 -Ibackend -Ilauncher -I.deps/cjson -Ibuild/generated
 CFLAGS := -std=c11 -O2 -g -Wall -Wextra -Werror -Wno-misleading-indentation
 HOST_CC ?= clang-19
@@ -9,6 +10,7 @@ PS5_LIB := $(PS5_PAYLOAD_SDK)/target/user/homebrew
 PS5_STRIP := $(PS5_PAYLOAD_SDK)/bin/prospero-strip
 GENERATED := build/generated/assets.h build/generated/catalog.h build/generated/ca.h build/generated/network.h build/generated/launcher.h
 PAYLOAD_SOURCES := $(SOURCES) launcher/install.c launcher/platform_ps5.c
+build/atmosphere_runtime.elf build/atmosphere.elf build/atmosphere_core.elf: $(REMOTE_HEADERS)
 PAYLOAD_CC = $(PS5_CC) $(CPPFLAGS) $(CFLAGS) -DATMOSPHERE_INSTALL_LAUNCHER -Wno-unreachable-code-generic-assoc -I$(PS5_LIB)/include
 # The SDK opens DT_NEEDED libraries in order. AppInst uses Ipmi internally;
 # retain and load Ipmi first even though Atmosphere does not call its API directly.
@@ -19,9 +21,9 @@ PS5_FS_WRAPS := -Wl,--wrap=openat -Wl,--wrap=mkdirat -Wl,--wrap=fstatat -Wl,--wr
 build/generated/network.h build/generated/launcher.h &: tools/embed-launcher.py config/network.json launcher/sce_sys/param.json launcher/sce_sys/icon0.png
 	python3 tools/embed-launcher.py
 host: build/atmosphere-host
-build/atmosphere-host: $(SOURCES) backend/atmosphere.h backend/image_metadata.h backend/game_region.h backend/copy_pipeline.h $(GENERATED)
+build/atmosphere-host: $(SOURCES) $(REMOTE_HEADERS) backend/atmosphere.h backend/image_metadata.h backend/game_region.h backend/copy_pipeline.h $(GENERATED)
 	$(HOST_CC) $(CPPFLAGS) $(CFLAGS) -DATMOSPHERE_DESKTOP $(SOURCES) -o $@ $(LDFLAGS) -lsmb2 -lcurl -lmicrohttpd -lssl -lcrypto -lz -lpthread -lm $(LDLIBS)
-build/atmosphere-test: $(SOURCES) backend/atmosphere.h backend/image_metadata.h backend/game_region.h backend/copy_pipeline.h $(GENERATED)
+build/atmosphere-test: $(SOURCES) $(REMOTE_HEADERS) backend/atmosphere.h backend/image_metadata.h backend/game_region.h backend/copy_pipeline.h $(GENERATED)
 	$(HOST_CC) $(CPPFLAGS) $(CFLAGS) -DATMOSPHERE_DESKTOP -DATMOSPHERE_TEST $(SOURCES) -o $@ $(LDFLAGS) -lsmb2 -lcurl -lmicrohttpd -lssl -lcrypto -lz -lpthread -lm $(LDLIBS)
 payload: build/atmosphere.elf
 # The runtime is the copy saved on the console for payload managers to start.

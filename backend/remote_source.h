@@ -11,6 +11,8 @@ typedef struct RemoteFile RemoteFile;
 typedef struct RemoteDir RemoteDir;
 RemoteSource *remote_smb(struct smb2_context *s);
 RemoteSource *remote_ftp(const char *host,unsigned port,const char *user,const char *password,bool (*cancel)(void));
+RemoteSource *remote_webdav(const char *host,unsigned port,const char *user,const char *password,bool tls,bool (*cancel)(void));
+const char *remote_protocol(RemoteSource *s);
 struct smb2_context *remote_smb_context(RemoteSource *s);
 struct smb2fh *remote_smb_file(RemoteFile *f);
 void remote_destroy(RemoteSource *s);

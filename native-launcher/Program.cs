@@ -68,7 +68,7 @@ internal sealed class Launcher : ProsperoApp
     }
     private int _tab, _selected, _sourceRow, _drive, _field, _sort;
     private bool _ready, _root, _remember, _passwordEdited;
-    private bool _refreshPending, _refreshActive;
+    private bool _refreshPending, _refreshActive, _startupScanChecked;
     private string _actionError="", _lastRefresh="Not refreshed this session";
     private long _refreshStarted;
     private int _closingApp=-1;
@@ -199,6 +199,10 @@ internal sealed class Launcher : ProsperoApp
         if(_status.Length==0) _status="Ready";
         if(_backgroundDeleteMessage.Length>0 && _actionError.Length==0)_status=_backgroundDeleteMessage;
         _selected=Math.Clamp(_selected,0,Math.Max(0,Games().Length-1));
+        if(!_startupScanChecked && Get(Smb,"sources").ValueKind==JsonValueKind.Array && !Flag(Smb,"busy")) {
+            _startupScanChecked=true;
+            if(Array(Get(Smb,"sources")).Any(x=>Flag(x,"enabled")&&Text(x,"server").Length>0))RefreshLibrary();
+        }
     }
     private void Send(string action, params (string Name,object Value)[] fields) { _backgroundDeleteMessage="";if(action!="deleteInstalled")_deleteRequest="";_actionError="";_backend.Enqueue(NativeBackend.Command(action,fields)); _status="Working..."; }
     private void RefreshLibrary() {
@@ -503,7 +507,7 @@ internal sealed class Launcher : ProsperoApp
             int y=271+(i-first)*116;
             var source=sources[i];
             bool active=Flag(source,"enabled");
-            string name=Text(source,"name"),protocol=Text(source,"protocol")=="ftp"?"FTP":"SMB";
+            string name=Text(source,"name"),protocol=Text(source,"protocol") switch {"ftp"=>"FTP","webdav"=>"WebDAV","webdavs"=>"WebDAV TLS",_=>"SMB"};
             string path=string.Join("/",new[]{Text(source,"share").Trim('/'),Text(source,"folder").Trim('/')}.Where(v=>v.Length>0));
             ServerAttribute(s,"STATUS",active?"ACTIVE":"NOT ACTIVE",90,y,160,active?Color.FromRgb(91,216,140):Color.FromRgb(242,105,115));
             ServerAttribute(s,"NAME",name.Length>0?name:Text(source,"server"),262,y,320,Blue);
@@ -588,7 +592,7 @@ internal sealed class Launcher : ProsperoApp
         var settings=sources[Math.Clamp(_sourceRow,0,sources.Length-1)];
         _editSourceId=Text(settings,"id");
         _values=_keys.Select(k=>k=="password"?"":Text(settings,k)).ToArray();
-        _values[8]=_values[8]=="ftp"?"ftp":"smb";
+        _values[8]=_values[8] is "ftp" or "webdav" or "webdavs"?_values[8]:"smb";
         _remember=Flag(settings,"remember"); _passwordEdited=false; _field=0; _modal="settings";
     }
     private void DrawSettings(GlCanvas s)
@@ -662,8 +666,8 @@ internal sealed class Launcher : ProsperoApp
             if(Press(ScePadButton.Down)) _field=Math.Min(11,_field+1);
             if(Press(ScePadButton.Cross)) {
                 if(_field==11) SaveSettings(); else if(_field==10) _remember=!_remember;
-                else if(_field==8){_values[8]=_values[8]=="ftp"?"smb":"ftp";_values[9]="";}
-                else try {_input=TextInputDialog.Open(_labels[_field],maxLength:240,initialText:_values[_field],options:_field==5?ImeOption.Password:ImeOption.None);}catch(Exception e){_status=e.Message;}
+                else if(_field==8){_values[8]=_values[8] switch {"smb"=>"ftp","ftp"=>"webdav","webdav"=>"webdavs",_=>"smb"};_values[9]="";}
+                else try {_actionError="";_input=TextInputDialog.Open(_labels[_field],maxLength:240,type:_field==5?ImeType.BasicLatin:ImeType.Default,initialText:_values[_field],options:_field==5?ImeOption.Password:ImeOption.None);}catch(Exception e){_actionError=_status=e.Message;}
             } return;
         }
         HandleExit(c);

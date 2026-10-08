@@ -1,7 +1,9 @@
-import json,re,tempfile,subprocess,threading,time,urllib.request,urllib.error,hashlib,socket
+import json,re,tempfile,subprocess,threading,time,urllib.request,urllib.error,hashlib,socket,os
 from pathlib import Path
-from ftp_adapter_test import Server,Handler,FILES
-import ftp_adapter_test
+protocol=os.environ.get('ATMOSPHERE_REMOTE_TEST_PROTOCOL','ftp')
+if protocol=='webdav':import webdav_fixture as ftp_adapter_test
+else:import ftp_adapter_test
+Server,Handler,FILES=ftp_adapter_test.Server,ftp_adapter_test.Handler,ftp_adapter_test.FILES
 from test_image_metadata import exfat
 FILES['/games/embedded.exfat']=bytes(exfat(backport=True))
 FILES['/games/Folder Game/eboot.bin']=b'test executable'
@@ -35,7 +37,7 @@ with tempfile.TemporaryDirectory() as tmp, Server(('127.0.0.1',0),Handler) as ft
         action('configure',**legacy,password='session-password')
         action('configure',**legacy,protocol='smb',port='')
         assert request()['hasPassword'], 'Editing a legacy SMB server cleared its password'
-        action('configure',protocol='ftp',server='127.0.0.1',port=str(ftp.server_address[1]),share='',folder='games',username='',password='',domain='',destinationFolder='homebrew')
+        action('configure',protocol=protocol,server='127.0.0.1',port=str(ftp.server_address[1]),share='',folder='games',username='',password='',domain='',destinationFolder='homebrew')
         action('scan');state=idle();assert len(state['games'])==3,state
         embedded=next(g for g in state['games'] if g['filename']=='embedded.exfat');assert embedded.get('cover'),embedded
         assert embedded.get('minimumFirmware')=='12.60',embedded
@@ -85,12 +87,12 @@ with tempfile.TemporaryDirectory() as tmp, Server(('127.0.0.1',0),Handler) as ft
         first=request()['activeSourceId']; first_count=len(request()['games'])
         FILES['/other/Second Server.ffpfsc']=b'second source test payload'
         action('addSource');second=request()['activeSourceId']
-        action('configure',protocol='ftp',server='127.0.0.1',port=str(ftp.server_address[1]),share='',folder='other',username='',password='',domain='',destinationFolder='second',name='Second FTP')
+        action('configure',protocol=protocol,server='127.0.0.1',port=str(ftp.server_address[1]),share='',folder='other',username='',password='',domain='',destinationFolder='second',name='Second FTP')
         action('scan');combined=idle()
         assert len(combined['games'])==first_count+1,combined
         assert all(s['enabled'] for s in combined['sources'])
         second_game=next(g for g in combined['games'] if g['sourceId']==second)
-        assert second_game['sourceName']=='Second FTP' and second_game['sourceProtocol']=='ftp'
+        assert second_game['sourceName']=='Second FTP' and second_game['sourceProtocol']==protocol
         action('selectSource',sourceId=first)
         action('copy',sourceId=second,gameId=second_game['id'],storageId='desktop')
         assert idle()['job']['status']=='complete'
@@ -117,7 +119,7 @@ with tempfile.TemporaryDirectory() as tmp, Server(('127.0.0.1',0),Handler) as ft
         first_before=next(s for s in before['sources'] if s['id']==first)
         action('selectSource',sourceId=first)
         action('deactivateSource',sourceId=second)
-        action('configure',sourceId=second,protocol='ftp',server='127.0.0.1',port=str(ftp.server_address[1]),share='',folder='other',username='',domain='',destinationFolder='second',name='Renamed second')
+        action('configure',sourceId=second,protocol=protocol,server='127.0.0.1',port=str(ftp.server_address[1]),share='',folder='other',username='',domain='',destinationFolder='second',name='Renamed second')
         after=json.loads((root/'state/smb-state.json').read_text())
         assert next(s for s in after['sources'] if s['id']==first)==first_before
         edited=next(s for s in after['sources'] if s['id']==second)

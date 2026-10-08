@@ -4,6 +4,11 @@ Use SERVERS > Square to add a server, then Triangle to edit the highlighted serv
 Cross toggles each server independently. Library shows all active servers.
 L2 duplicates the highlighted entry after confirmation; the copy starts inactive.
 Highlight Protocol and press Cross to switch between SMB and FTP.
+Protocol also cycles through webdav (HTTP) and webdavs (HTTPS).
+For WebDAV, use Server hostname/IP only, Port 80/443 or your custom port,
+and Folder relative to the URL root (for example ps5). Share and Domain are
+unused. Basic credentials or anonymous access are supported. HTTPS requires
+a trusted certificate. The server must support PROPFIND, HEAD and byte ranges.
 Leave Port blank for SMB port 445 or FTP port 21.
 
 SMB: enter the share name and a folder relative to that share.

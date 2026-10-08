@@ -221,14 +221,14 @@ export function SMB({
           }}
         >
           <div className="smb-fields">
-            <label>Protocol<select value={settings.protocol || "smb"} disabled={busy} onChange={e => setSettings({...settings, protocol:e.target.value, port:""})}><option value="smb">SMB</option><option value="ftp">FTP</option></select></label>
+            <label>Protocol<select value={settings.protocol || "smb"} disabled={busy} onChange={e => setSettings({...settings, protocol:e.target.value, port:""})}><option value="smb">SMB</option><option value="ftp">FTP</option><option value="webdav">WebDAV (HTTP)</option><option value="webdavs">WebDAV (HTTPS)</option></select></label>
             {(
               [
                 ["name", "Server name (optional)", "Living room NAS"],
                 ["server", "Server IP or hostname", "192.168.1.100"],
-                ["port", "Port (blank for default)", settings.protocol === "ftp" ? "21" : "445"],
+                ["port", "Port (blank for default)", settings.protocol === "ftp" ? "21" : settings.protocol === "webdav" ? "80" : settings.protocol === "webdavs" ? "443" : "445"],
                 ["share", "Share name (SMB only)", "Games"],
-                ["folder", "Folder (FTP: from server root; SMB: inside share)", "DATA2/ps5"],
+                ["folder", "Folder (from server root; SMB: inside share)", "ps5"],
                 ["username", "Username (blank for guest)", ""],
                 ["domain", "Domain (optional)", ""],
                 [
@@ -243,7 +243,7 @@ export function SMB({
                 <input
                   value={settings[key]}
                   placeholder={hint}
-                  required={key === "server" || (key === "share" && settings.protocol !== "ftp")}
+                  required={key === "server" || (key === "share" && (!settings.protocol || settings.protocol === "smb"))}
                   disabled={busy}
                   autoComplete="off"
                   onChange={(e) =>
@@ -316,7 +316,7 @@ export function SMB({
         </button>
       </div>
       <p className="smb-scan-status" role="status">
-        {snapshot?.message || (snapshot?.settings.server ? "Library ready · Select a game to view copy options." : "Connect an SMB or FTP server to get started.")}
+        {snapshot?.message || (snapshot?.settings.server ? "Library ready · Select a game to view copy options." : "Connect an SMB, FTP or WebDAV server to get started.")}
       </p>
       {snapshot?.job && (
         <div className="smb-progress" aria-label="server copy progress">

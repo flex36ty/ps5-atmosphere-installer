@@ -1,5 +1,16 @@
 # Changelog
 
+## v2026.10.08.1 — 2026-10-08
+
+- Added WebDAV HTTP/HTTPS sources, Basic authentication, bounded XML directory parsing, metadata and cover reads, recursive folder copying, and verified byte-range transfers through the existing copy/resume workflow.
+- Added WebDAV protocol choices to native and browser server settings. HTTPS retains certificate verification; redirects and invalid range responses are rejected.
+- Scan all configured active servers once when the native app starts, retaining cached games while refreshing and waiting for an idle backend.
+- Removed the unused pairing-code startup notification and log from the native app. Browser/API pairing remains protected.
+- Corrected the password keyboard to use Basic Latin with password masking. Keyboard errors remain visible instead of being overwritten by status updates.
+- WebDAV local integration and malformed-listing/range tests passed; authenticated HEAD and beginning/middle/end reads succeeded on the test Apache server. PS5 end-to-end WebDAV validation is pending.
+- Native builds, signing, and integrity checks passed. The WebDAV modules and subsequent password-keyboard fix were uploaded to the test PS5 and verified by SHA-256 readback; console confirmation of password entry is pending.
+- Includes the complete matching folder build and the Yxml MIT license. Close Atmosphere before updating and preserve `atmosphere-state`. Released as a prerelease; no broader firmware compatibility claim is made.
+
 ## v2026.10.08 — 2026-10-08
 
 ### Servers and unified library

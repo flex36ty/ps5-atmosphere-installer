@@ -1,4 +1,4 @@
-/* Read-only SMB/FTP adapter. FTP paths are URL-escaped and never interpreted
+/* Read-only SMB/FTP/WebDAV adapter. Remote paths are URL-escaped and never interpreted
  * as commands. The caller retains destination validation and copy verification. */
 #define _POSIX_C_SOURCE 200809L
 #include "remote_source.h"
@@ -9,7 +9,9 @@
 #include <strings.h>
 #include <limits.h>
 #include <errno.h>
-struct RemoteSource {struct smb2_context *smb; CURL *curl; char base[320],error[CURL_ERROR_SIZE]; bool (*cancel)(void);};
+#include "webdav_listing.h"
+#include "ca.h"
+struct RemoteSource {struct smb2_context *smb; CURL *curl; char base[320],error[CURL_ERROR_SIZE]; bool (*cancel)(void); bool dav,tls; unsigned long long range_start,range_end,range_total; bool range_valid;};
 struct RemoteFile {struct smb2fh *smb; char *path;};
 struct RemoteDir {struct smb2dir *smb; struct smb2dirent *entries; size_t count,index;};
 typedef struct {unsigned char *data;size_t used,capacity;bool grow;} Buffer;
@@ -38,17 +40,35 @@ static char *url(RemoteSource *s,const char *path,bool directory){
     }
     if(directory && out[pos-1]!='/')out[pos++]='/';out[pos]=0;return out;
 }
+static size_t header(char *data,size_t size,size_t count,void *opaque){
+    RemoteSource *s=opaque;size_t n=size*count;
+    if(n>=5&&!strncasecmp(data,"HTTP/",5))s->range_valid=false;
+    if(n>14&&!strncasecmp(data,"Content-Range:",14)){
+        char value[160];if(n>=sizeof value)return 0;memcpy(value,data,n);value[n]=0;
+        s->range_valid=sscanf(value+14," bytes %llu-%llu/%llu",&s->range_start,&s->range_end,&s->range_total)==3;
+    }return n;
+}
 static int request(RemoteSource *s,const char *path,bool directory,Buffer *buffer,const char *range,bool info){
     char *address=url(s,path,directory);if(!address)return -1;s->error[0]=0;
     curl_easy_setopt(s->curl,CURLOPT_URL,address);
-    curl_easy_setopt(s->curl,CURLOPT_CUSTOMREQUEST,directory?"MLSD":NULL);
+    curl_easy_setopt(s->curl,CURLOPT_CUSTOMREQUEST,directory?(s->dav?"PROPFIND":"MLSD"):NULL);
+    struct curl_slist *headers=NULL;
+    if(s->dav&&directory)headers=curl_slist_append(headers,"Depth: 1");
+    curl_easy_setopt(s->curl,CURLOPT_HTTPHEADER,headers);
     curl_easy_setopt(s->curl,CURLOPT_NOBODY,info?1L:0L);
     curl_easy_setopt(s->curl,CURLOPT_FILETIME,info?1L:0L);
     curl_easy_setopt(s->curl,CURLOPT_RANGE,range);
     curl_easy_setopt(s->curl,CURLOPT_WRITEFUNCTION,info?discard:receive);
     curl_easy_setopt(s->curl,CURLOPT_WRITEDATA,buffer);
-    CURLcode rc=curl_easy_perform(s->curl);free(address);
-    if(rc && !*s->error)snprintf(s->error,sizeof s->error,"FTP: %s",curl_easy_strerror(rc));
+    s->range_valid=false;CURLcode rc=curl_easy_perform(s->curl);free(address);curl_slist_free_all(headers);curl_easy_setopt(s->curl,CURLOPT_HTTPHEADER,NULL);
+    if(rc && !*s->error)snprintf(s->error,sizeof s->error,"%s: %s",s->dav?"WebDAV":"FTP",curl_easy_strerror(rc));
+    if(s->dav){
+        long status=0;curl_easy_getinfo(s->curl,CURLINFO_RESPONSE_CODE,&status);
+        if(status && status!=(directory?207:range?206:200)){snprintf(s->error,sizeof s->error,"WebDAV HTTP %ld%s",status,status==401?" (check username/password)":range?" (byte-range support required)":"");return -1;}
+        if(!rc&&range){unsigned long long start,end;
+            if(sscanf(range,"%llu-%llu",&start,&end)!=2||!s->range_valid||s->range_start!=start||s->range_end<start||s->range_end>end||s->range_end>=s->range_total||s->range_end!=(end<s->range_total?end:s->range_total-1)||buffer->used!=s->range_end-start+1){snprintf(s->error,sizeof s->error,"WebDAV returned an invalid or incomplete byte range");return -1;}
+        }
+    }
     return rc? -1:0;
 }
 RemoteSource *remote_smb(struct smb2_context *s){RemoteSource *r=calloc(1,sizeof *r);if(r)r->smb=s;else smb2_destroy_context(s);return r;}
@@ -70,6 +90,18 @@ RemoteSource *remote_ftp(const char *host,unsigned port,const char *user,const c
     curl_easy_setopt(s->curl,CURLOPT_XFERINFODATA,s);
     return s;
 }
+RemoteSource *remote_webdav(const char *host,unsigned port,const char *user,const char *password,bool tls,bool (*cancel)(void)){
+    RemoteSource *s=remote_ftp(host,port,user,password,cancel);if(!s)return NULL;s->dav=true;s->tls=tls;
+    snprintf(s->base,sizeof s->base,"%s://%s:%u/",tls?"https":"http",host,port?port:tls?443:80);
+    curl_easy_setopt(s->curl,CURLOPT_USERNAME,user);curl_easy_setopt(s->curl,CURLOPT_PASSWORD,password);
+    curl_easy_setopt(s->curl,CURLOPT_HTTPAUTH,(long)CURLAUTH_BASIC);
+    curl_easy_setopt(s->curl,CURLOPT_FOLLOWLOCATION,0L);
+    curl_easy_setopt(s->curl,CURLOPT_SSL_VERIFYPEER,1L);curl_easy_setopt(s->curl,CURLOPT_SSL_VERIFYHOST,2L);
+    struct curl_blob ca={(void*)atmosphere_ca,sizeof atmosphere_ca-1,CURL_BLOB_COPY};curl_easy_setopt(s->curl,CURLOPT_CAINFO_BLOB,&ca);
+    curl_easy_setopt(s->curl,CURLOPT_HEADERFUNCTION,header);curl_easy_setopt(s->curl,CURLOPT_HEADERDATA,s);
+    return s;
+}
+const char *remote_protocol(RemoteSource *s){return s->smb?"smb":s->dav?(s->tls?"webdavs":"webdav"):"ftp";}
 struct smb2_context *remote_smb_context(RemoteSource *s){return s->smb;}
 void remote_forget_smb(RemoteSource *s){s->smb=NULL;}
 struct smb2fh *remote_smb_file(RemoteFile *f){return f->smb;}
@@ -87,7 +119,9 @@ RemoteDir *remote_opendir(RemoteSource *s,const char *path){
     RemoteDir *d=calloc(1,sizeof *d);if(!d)return NULL;
     if(s->smb){d->smb=smb2_opendir(s->smb,path);if(!d->smb){free(d);return NULL;}return d;}
     Buffer b={.grow=true};if(request(s,path,true,&b,NULL,false)){free(b.data);free(d);return NULL;}
-    if(!b.data)return d;b.data[b.used]=0;char *save,*line=strtok_r((char *)b.data,"\n",&save);
+    if(!b.data){if(s->dav)goto fail;return d;}b.data[b.used]=0;
+    if(s->dav){if(webdav_listing((char*)b.data,b.used,s->base,path,&d->entries,&d->count)){snprintf(s->error,sizeof s->error,"Invalid or unsafe WebDAV directory listing");goto fail;}free(b.data);return d;}
+    char *save,*line=strtok_r((char *)b.data,"\n",&save);
     for(;line;line=strtok_r(NULL,"\n",&save)){
         size_t len=strlen(line);if(len&&line[len-1]=='\r')line[--len]=0;if(!len)continue;
         char *name=strchr(line,' ');if(!name){snprintf(s->error,sizeof s->error,"FTP server must support MLSD directory listings");goto fail;}*name++=0;

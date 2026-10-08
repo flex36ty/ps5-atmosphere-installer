@@ -2,7 +2,7 @@
 
 See [CHANGELOG.md](CHANGELOG.md) for changes and update requirements.
 
-Atmosphere is a controller-driven PS5 homebrew application for browsing games on your own SMB and FTP servers and copying them to internal storage or an attached USB drive. It is derived from [Orbit Store](https://github.com/saawant12/orbit-store-ps5).
+Atmosphere is a controller-driven PS5 homebrew application for browsing games on your own SMB, FTP, and WebDAV HTTP/HTTPS servers and copying them to internal storage or an attached USB drive. It is derived from [Orbit Store](https://github.com/saawant12/orbit-store-ps5).
 
 The current application uses a native OpenGL interface and an in-process C backend. Normal browsing and copying do not require a separately launched service ELF.
 
@@ -14,7 +14,8 @@ The current application uses a native OpenGL interface and an in-process C backe
 
 ## Features
 
-- Multiple simultaneously active SMB and FTP servers in one library, including anonymous/guest connections; activate, deactivate, edit, duplicate, and remove saved servers.
+- Multiple simultaneously active SMB, FTP, and WebDAV servers in one library, including anonymous/guest connections; activate, deactivate, edit, duplicate, and remove saved servers.
+- Automatic scan of active servers on startup, retaining the cached library while refreshing. Native app use does not require pairing.
 - Discovery of game folders, exFAT images, and FFPFSC images, with metadata and cached cover art where supported.
 - Smooth scrolling, animated card lift, square cover cards, and a frosted background. Overflowing text scrolls left with two-second pauses at the end and after resetting.
 - Solid format badges on posters, a dedicated server row, and compact Installed status on cards; the copy popup retains the installed location.
@@ -39,9 +40,9 @@ Internal permission repair also requires etaHEN's ELF loader on port 9021. If `/
 
 ## Installation
 
-These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.08.zip` from the [GitHub release](https://github.com/flex36ty/ps5-atmosphere-installer/releases/tag/v2026.10.08) or [Gitea release](http://192.168.0.217:3003/flex360/ps5-atmosphere-installer/releases/tag/v2026.10.08) (local network). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
+These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.08.1.zip` from the [GitHub release](https://github.com/flex36ty/ps5-atmosphere-installer/releases/tag/v2026.10.08.1) or [Gitea release](http://192.168.0.217:3003/flex360/ps5-atmosphere-installer/releases/tag/v2026.10.08.1) (local network). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
 
-The v2026.10.08 prerelease adds a unified multi-server library, server duplication, revised cards, one-way text scrolling, and a fix for editing the wrong server. Close Atmosphere before updating and preserve `atmosphere-state`. Replace the complete build: its updated graphics interface needs the matching executable and modules. Build and regression checks passed; the final server-edit fix has been uploaded and verified but still awaits user confirmation on the console. See the changelog for details. The demo and screenshots above show an earlier layout.
+The v2026.10.08.1 prerelease adds WebDAV, startup scanning, removal of the native pairing notification, and a password-keyboard fix. Close Atmosphere before updating and preserve `atmosphere-state`. Replace the complete build: its updated graphics interface needs the matching executable and modules. Build and regression checks passed; the latest modules have been uploaded and verified, while end-to-end WebDAV copying and the password-keyboard fix still await user confirmation on the console. See the changelog for details. The demo and screenshots above show an earlier layout.
 
 1. Start your working etaHEN/kstuff session and ensure ShadowMountPlus is available.
 2. Extract the complete Atmosphere folder build on your computer. Keep its supplied directory structure and runtime files intact.
@@ -70,10 +71,13 @@ The v2026.10.08 prerelease adds a unified multi-server library, server duplicati
 
 ### First server setup
 
-Open **Servers** and press **Square** to add a server. Choose SMB or FTP and enter the server IP address or hostname.
+Open **Servers** and press **Square** to add a server. Choose SMB, FTP, or WebDAV and enter the server IP address or hostname.
 
 - **SMB:** enter the share name separately from the folder. For example, `\\SERVER\games\ps5` uses share `games` and folder `ps5`. The default port is `445`. Guest shares can use blank credentials if the server permits guest access.
 - **FTP:** enter the folder relative to the FTP server's root, without a leading slash. Leave Share and Domain blank. The default port is `21`; blank username/password uses anonymous FTP if the server permits it. This is plain FTP, not SFTP.
+- **WebDAV:** choose `webdav` for HTTP or `webdavs` for HTTPS. Enter only the hostname/IP in Server, set Port (`80`/`443` by default), and enter the URL path without a leading slash in Folder. For `http://SERVER:5008/ps5/`, use Server `SERVER`, Port `5008`, Folder `ps5`. Leave Share and Domain blank. Basic username/password authentication and anonymous access are supported. HTTPS verifies certificates against the bundled CA store; self-signed certificates are not automatically trusted. The server must support Depth-1 PROPFIND listings, HEAD, and HTTP byte ranges. Redirects are rejected; configure the final endpoint directly.
+
+Startup scanning, WebDAV, removal of the native pairing notification, and the password-keyboard fix are included in v2026.10.08.1. They are not present in the older v2026.10.08 ZIP.
 
 Save the server, highlight it, and press **Cross** so its status reads **ACTIVE**. Go to **Library** and press **Square** to scan. If the list stays empty, check the server path, permissions, and that the PS5 can reach the server on your network.
 
@@ -82,7 +86,7 @@ You can leave several servers active. Library refresh scans them sequentially an
 ## Usage
 
 1. Launch Atmosphere from the registered folder application.
-2. Open **Servers**, add an SMB or FTP server, and activate it. Use your server address, share/path, and credentials as appropriate.
+2. Open **Servers**, add an SMB, FTP, or WebDAV server, and activate it. Use your server address, share/path, and credentials as appropriate.
 3. Return to **Library** and press Square to scan.
 4. Select a game, choose a destination, and start copying.
 5. Close Atmosphere with Options when finished so ShadowMountPlus can finish detecting copied games.

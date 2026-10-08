@@ -27,6 +27,7 @@ internal static class Preview {
   command[0]=1;Reject(command,1234);
   Console.WriteLine("etaHEN IPC packet and reply validation: PASS");
   var app=new Launcher();
+  Set(app,"_startupScanChecked",true);
   ScePadButton Stick(float x,float y,long time)=>(ScePadButton)Call(app,"StickNavigation",x,y,time)!;
   if(Stick(.2f,0,0)!=0 || Stick(.8f,0,10)!=ScePadButton.Right || Stick(.8f,0,359)!=0 || Stick(.8f,0,360)!=ScePadButton.Right || Stick(.8f,0,489)!=0 || Stick(.8f,0,490)!=ScePadButton.Right)throw new Exception("Stick dead zone or repeat timing failed");
   if(Stick(0,-.9f,500)!=ScePadButton.Up || Stick(0,0,510)!=0 || Stick(-.8f,.7f,520)!=ScePadButton.Left || Stick(0,0,530)!=0)throw new Exception("Stick release or dominant axis failed");
@@ -45,6 +46,20 @@ internal static class Preview {
   {"smb":{"activeSourceId":"s1","settings":{"name":"Living Room NAS","server":"192.168.0.113","share":"data2","folder":"ps5"},"sources":[{"id":"s1","enabled":true,"name":"Living Room NAS","protocol":"smb","server":"192.168.0.113","share":"data2","folder":"ps5"},{"id":"s2","enabled":true,"name":"FTP Server","protocol":"ftp","server":"192.168.0.114","folder":"DATA2/ps5"}],"games":[{"id":"1","sourceId":"s1","sourceName":"Living Room NAS","sourceProtocol":"smb","title":"Adventure Collection","titleId":"PPSA00001","minimumFirmware":"12.60","region":"EUR","backportFiles":true,"format":"ffpfsc","size":48000000000,"addedAt":3},{"id":"2","sourceId":"s2","sourceName":"FTP Server","sourceProtocol":"ftp","title":"Racing Collection","titleId":"PPSA00002","format":"folder","size":37000000000,"addedAt":1}],"installed":{"complete":true,"checking":false,"games":[{"titleId":"PPSA00001","location":"USB 0"}]},"job":{"title":"Adventure Collection","status":"copying","phase":"Copying","received":12000000000,"total":48000000000,"speedBytesPerSecond":80000000}},"storage":[{"id":"usb0","label":"USB Drive","freeBytes":900000000000,"external":true}]}
   """);
   Call(app,"UpdateData",doc.RootElement.Clone());
+  var startup=new Launcher();Call(startup,"UpdateData",doc.RootElement.Clone());
+  if(!(bool)typeof(Launcher).GetField("_refreshPending",Hidden)!.GetValue(startup)!)throw new Exception("Startup scan not requested");
+  Set(startup,"_refreshPending",false);Call(startup,"UpdateData",doc.RootElement.Clone());
+  if((bool)typeof(Launcher).GetField("_refreshPending",Hidden)!.GetValue(startup)!)throw new Exception("Startup scan repeated on snapshot");
+  Console.WriteLine("PASS: automatic startup scan requested once per launch");
+  var busyStartup=new Launcher();
+  using(var busyDoc=JsonDocument.Parse(doc.RootElement.GetRawText().Replace("\"activeSourceId\":\"s1\"","\"busy\":true,\"activeSourceId\":\"s1\"")))Call(busyStartup,"UpdateData",busyDoc.RootElement.Clone());
+  if((bool)typeof(Launcher).GetField("_startupScanChecked",Hidden)!.GetValue(busyStartup)!)throw new Exception("Startup scan consumed while busy");
+  Call(busyStartup,"UpdateData",doc.RootElement.Clone());
+  if(!(bool)typeof(Launcher).GetField("_refreshPending",Hidden)!.GetValue(busyStartup)!)throw new Exception("Deferred startup scan missing");
+  var emptyStartup=new Launcher();
+  using(var emptyDoc=JsonDocument.Parse("{\"smb\":{\"sources\":[]}}"))Call(emptyStartup,"UpdateData",emptyDoc.RootElement.Clone());
+  if((bool)typeof(Launcher).GetField("_refreshPending",Hidden)!.GetValue(emptyStartup)! || (int)typeof(Launcher).GetField("_tab",Hidden)!.GetValue(emptyStartup)!=0)throw new Exception("Empty startup launched scan or changed tab");
+  Console.WriteLine("PASS: startup scan waits for idle and skips unconfigured servers");
   Set(app,"_sourceRow",1);Call(app,"EditSettings");
   if((string)typeof(Launcher).GetField("_editSourceId",Hidden)!.GetValue(app)! != "s2" || !((string[])typeof(Launcher).GetField("_values",Hidden)!.GetValue(app)!).Contains("FTP Server"))throw new Exception("Edit did not target the highlighted second server");
   Set(app,"_sourceRow",0);Set(app,"_modal","");

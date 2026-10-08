@@ -222,6 +222,7 @@ int main(int argc, char **argv) {
         return startup_failure("Read state.json", errno);
     }
     BACKEND_STAGE(6);
+#ifndef ATMOSPHERE_NATIVE_APP
     char random[9];
     random_hex(random, 4);
     unsigned long code = strtoul(random, NULL, 16) % 1000000;
@@ -229,6 +230,9 @@ int main(int argc, char **argv) {
     printf("Atmosphere %s | %s | port %d\n", ATMOSPHERE_VERSION,
            atmosphere.desktop ? "DESKTOP PREVIEW (game transfers disabled)" : "PS5", atmosphere.port);
     printf("Pairing code: %s\n", atmosphere.pair_code);
+#else
+    printf("Atmosphere %s | native app\n", ATMOSPHERE_VERSION);
+#endif
 #if !defined(ATMOSPHERE_DESKTOP) && !defined(ATMOSPHERE_NATIVE_APP)
     printf("Firmware raw: 0x%08x\n", kernel_get_fw_version());
 #endif
@@ -290,6 +294,7 @@ int main(int argc, char **argv) {
 #endif
     if (library_start())
         puts("Storage information worker could not start.");
+#ifndef ATMOSPHERE_NATIVE_APP
     char ready_message[200];
     snprintf(ready_message, sizeof ready_message, "Atmosphere :%d | Pair: %s | %s", atmosphere.port,
              atmosphere.pair_code,
@@ -297,6 +302,7 @@ int main(int argc, char **argv) {
              : !strcmp(atmosphere.launcher_status, "error") ? "Icon setup failed; server is running"
                                                        : "Server ready");
     notify_console(ready_message);
+#endif
     while (!stopping) {
         sleep(1);
         if (atomic_load(&stop_requested)) {

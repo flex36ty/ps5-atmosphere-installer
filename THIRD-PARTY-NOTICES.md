@@ -26,4 +26,6 @@ libmicrohttpd is linked statically. Its complete source and Atmosphere's complet
 
 ## Not covered by these licences
 
+WebDAV directory parsing uses [Yxml](https://dev.yorhel.nl/yxml), copyright Yoran Heling, under the MIT license. Its source, local include-path adjustment, and full license are included in [vendor/yxml](vendor/yxml/README.md).
+
 Game names, cover art and screenshots shown by Atmosphere belong to their respective owners. Artwork is loaded from providers or the user's SMB files at runtime; it is not part of Atmosphere's licensed source and is not licensed under the GPL.
