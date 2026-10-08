@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory() as tmp, Server(('127.0.0.1',0),Handler) as ft
         headers={'Content-Type':'application/json','Origin':f'http://127.0.0.1:{port}'}
         if token:headers['Authorization']='Bearer '+token
         with urllib.request.urlopen(urllib.request.Request(url+path,data=None if body is None else json.dumps(body).encode(),headers=headers),timeout=30) as res:return json.load(res)
-    def action(name,**kw):return request(body={'action':name,**kw})
+    def action(action_name,**kw):return request(body={'action':action_name,**kw})
     def idle():
         for _ in range(600):
             state=request()
@@ -82,5 +82,47 @@ with tempfile.TemporaryDirectory() as tmp, Server(('127.0.0.1',0),Handler) as ft
         assert idle()['job']['status']=='complete'
         print('PASS: installed image/folder title IDs, renamed folder matching, duplicate warning and explicit override')
         print('PASS: FTP embedded metadata/cover, image and recursive folder scan, pause/resume, copy, SHA-256 verification and destination bytes')
+        first=request()['activeSourceId']; first_count=len(request()['games'])
+        FILES['/other/Second Server.ffpfsc']=b'second source test payload'
+        action('addSource');second=request()['activeSourceId']
+        action('configure',protocol='ftp',server='127.0.0.1',port=str(ftp.server_address[1]),share='',folder='other',username='',password='',domain='',destinationFolder='second',name='Second FTP')
+        action('scan');combined=idle()
+        assert len(combined['games'])==first_count+1,combined
+        assert all(s['enabled'] for s in combined['sources'])
+        second_game=next(g for g in combined['games'] if g['sourceId']==second)
+        assert second_game['sourceName']=='Second FTP' and second_game['sourceProtocol']=='ftp'
+        action('selectSource',sourceId=first)
+        action('copy',sourceId=second,gameId=second_game['id'],storageId='desktop')
+        assert idle()['job']['status']=='complete'
+        assert (root/'dest/second/Second Server.ffpfsc').read_bytes()==FILES['/other/Second Server.ffpfsc']
+        action('deactivateSource',sourceId=first)
+        assert {g['sourceId'] for g in request()['games']}=={second}
+        action('selectSource',sourceId=first)
+        assert len(request()['games'])==first_count+1
+        saved=json.loads((root/'state/smb-state.json').read_text())
+        assert all(s['enabled'] for s in saved['sources'])
+        print('PASS: combined libraries, independent activation, source labels, source-routed copy and saved activation')
+        try:action('duplicateSource',sourceId=second);raise AssertionError('Unconfirmed duplicate accepted')
+        except urllib.error.HTTPError as error:assert error.code==400
+        action('duplicateSource',sourceId=second,confirmed=True)
+        duplicate=request();copy_id=duplicate['activeSourceId']
+        assert copy_id not in (first,second) and len(duplicate['sources'])==3
+        assert duplicate['settings']['name']=='Second FTP (copy)' and duplicate['settings']['folder']=='other'
+        assert not next(s for s in duplicate['sources'] if s['id']==copy_id)['enabled']
+        assert len(duplicate['games'])==first_count+1
+        saved=json.loads((root/'state/smb-state.json').read_text())
+        assert next(s for s in saved['sources'] if s['id']==copy_id)['games']==[]
+        print('PASS: confirmed server duplication, independent ID, copied settings, inactive state and empty cache')
+        before=json.loads((root/'state/smb-state.json').read_text())
+        first_before=next(s for s in before['sources'] if s['id']==first)
+        action('selectSource',sourceId=first)
+        action('deactivateSource',sourceId=second)
+        action('configure',sourceId=second,protocol='ftp',server='127.0.0.1',port=str(ftp.server_address[1]),share='',folder='other',username='',domain='',destinationFolder='second',name='Renamed second')
+        after=json.loads((root/'state/smb-state.json').read_text())
+        assert next(s for s in after['sources'] if s['id']==first)==first_before
+        edited=next(s for s in after['sources'] if s['id']==second)
+        assert edited['settings']['name']=='Renamed second' and not edited['enabled']
+        assert next(s for s in request()['sources'] if s['id']==second)['destinationFolder']=='second'
+        print('PASS: editing second inactive server by ID preserves first server and activation state')
     finally:
         app.terminate();app.wait(timeout=10);ftp.shutdown()

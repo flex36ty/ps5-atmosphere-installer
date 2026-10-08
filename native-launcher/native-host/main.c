@@ -7,7 +7,7 @@
 #include <unistd.h>
 /* Two 4K backgrounds plus covers and one in-flight PNG decode need >128 MiB. */
 const size_t ps5_opengl_heap_size = 256u * 1024u * 1024u;
-typedef struct {uint32_t version,size;void *open,*close,*begin,*present,*rect,*text,*measure,*texture,*image,*delete_texture,*error,*clip,*artwork;} Graphics;
+typedef struct {uint32_t version,size;void *open,*close,*begin,*present,*rect,*text,*measure,*texture,*image,*delete_texture,*error,*clip,*artwork,*scrolling_text;} Graphics;
 typedef struct {uint32_t version,size;int (*run)(void*,void*,void*);} Ui;
 extern int atmosphere_gl_start(size_t,void*);
 extern int sceKernelLoadStartModule(const char*,size_t,void*,unsigned,void*,int*);
@@ -32,7 +32,7 @@ static int install_tls_heap(void) {
 }
 int main(void) {
     mkdir("/app0/atmosphere-state",0700);
-    Graphics graphics={0};graphics.version=1;graphics.size=sizeof(graphics);
+    Graphics graphics={0};graphics.version=2;graphics.size=sizeof(graphics);
     if(atmosphere_gl_start(sizeof(graphics),&graphics)!=0)return 1;
     fprintf(stderr,"[native-host] opening renderer\n");fflush(stderr);
     if(((int(*)(void))graphics.open)()!=0) {

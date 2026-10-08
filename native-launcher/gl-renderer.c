@@ -218,6 +218,22 @@ static void text(const char *text,float x,float y,float size,uint32_t tint,float
   quad(pen+g->xoff*scale,baseline+g->yoff*scale,(g->xoff2-g->xoff)*scale,(g->yoff2-g->yoff)*scale,g->x0/4096.f,g->y0/4096.f,g->x1/4096.f,g->y1/4096.f);pen=next;
  }flush();
 }
+/* Clip scrolling glyph geometry and UVs to the original text box. This also
+ * preserves the outer library scissor without extra GL state changes. */
+static void scrolling_text(const char *value,float x,float y,float size,uint32_t tint,float width,float offset){
+ if(!value||width<=0)return;
+ float scale=size/96.f,pen=x-offset,baseline=y+size*.82f;
+ memset(&current,0,sizeof current);current.kind=2;current.top=current.bottom=tint;current.texture=font_texture;
+ const unsigned char *s=(const unsigned char*)value;
+ while(*s){stbtt_packedchar *g=&glyphs[glyph_index(codepoint(&s))];
+  float left=pen+g->xoff*scale,right=pen+g->xoff2*scale;
+  float a=fmaxf(left,x),b=fminf(right,x+width);
+  if(b>a&&right>left){float u0=g->x0/4096.f,u1=g->x1/4096.f;
+   quad(a,baseline+g->yoff*scale,b-a,(g->yoff2-g->yoff)*scale,u0+(u1-u0)*(a-left)/(right-left),g->y0/4096.f,u0+(u1-u0)*(b-left)/(right-left),g->y1/4096.f);
+  }
+  pen+=g->xadvance*scale;if(pen>x+width)break;
+ }flush();
+}
 static void image(GLuint id,float x,float y,float w,float h){
  memset(&current,0,sizeof(current));current.x=x;current.y=y;current.w=w;current.h=h;current.r=8;
  current.kind=1;current.top=current.bottom=0xffffffff;current.texture=id;
@@ -242,12 +258,12 @@ static void library_clip(int enabled){
  if(!enabled){glDisable(GL_SCISSOR_TEST);return;}
  GLint viewport[4];glGetIntegerv(GL_VIEWPORT,viewport);
  glEnable(GL_SCISSOR_TEST);
- glScissor(0,viewport[3]*(1080-824)/1080,viewport[2],viewport[3]*(824-240)/1080);
+ glScissor(0,viewport[3]*(1080-824)/1080,viewport[2],viewport[3]*(824-232)/1080);
 }
-typedef struct {uint32_t version,size;void *open,*close,*begin,*present,*rect,*text,*measure,*texture,*image,*delete_texture,*error,*clip,*artwork;} Api;
+typedef struct {uint32_t version,size;void *open,*close,*begin,*present,*rect,*text,*measure,*texture,*image,*delete_texture,*error,*clip,*artwork,*scrolling_text;} Api;
 int atmosphere_gl_start(size_t size,void *args){
- if(!args||size!=sizeof(Api))return -1;Api *a=args;if(a->version!=1||a->size!=sizeof(Api))return -1;
- *a=(Api){1,sizeof(Api),open_renderer,close_renderer,begin,present,rect,text,measure,texture,image,delete_texture,last_error,library_clip,artwork};return 0;
+ if(!args||size!=sizeof(Api))return -1;Api *a=args;if(a->version!=2||a->size!=sizeof(Api))return -1;
+ *a=(Api){2,sizeof(Api),open_renderer,close_renderer,begin,present,rect,text,measure,texture,image,delete_texture,last_error,library_clip,artwork,scrolling_text};return 0;
 }
 #ifdef ATMOSPHERE_GL_HOST
 int atmosphere_gl_readback(void *pixels){flush();submit();glFinish();glReadPixels(0,0,1920,1080,GL_BGRA,GL_UNSIGNED_BYTE,pixels);return glGetError()==GL_NO_ERROR?0:-1;}

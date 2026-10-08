@@ -237,21 +237,25 @@ follow symlinks = no
             first = request()["activeSourceId"]
             first_games = request()["games"]
             second = action("addSource")["activeSourceId"]
-            assert second != first and not request()["games"]
+            assert second != first and request()["games"] == first_games
             action("configure", **{**cfg, "folder": "Collection", "password": "session-secret"}, name="Second library")
             action("scan")
-            assert len(idle()["games"]) == 1
+            combined=idle()["games"]
+            assert len([g for g in combined if g['sourceId']==second]) == 1
+            first_games=[g for g in combined if g['sourceId']==first]
             action("selectSource", sourceId=first)
-            assert request()["games"] == first_games and not request()["hasPassword"]
+            assert request()["games"] == combined and not request()["hasPassword"]
             action("selectSource", sourceId=second)
             assert request()["hasPassword"] and request()["settings"]["name"] == "Second library"
             assert "session-secret" not in json.dumps(request())
             assert "session-secret" not in (state / "smb-state.json").read_text()
             app.terminate(); app.wait(timeout=45); start()
             assert request()["activeSourceId"] == second and not request()["hasPassword"]
-            assert len(request()["games"]) == 1
+            assert request()["games"] == combined
             action("selectSource", sourceId=first)
-            assert request()["games"] == first_games
+            assert request()["games"] == combined
+            action('deactivateSource',sourceId=second)
+            assert request()['games']==first_games
             request(body={"action":"selectSource", "sourceId":"missing"}, expected=404)
             print("PASS multiple sources, isolated caches/credentials, switching and restart persistence", flush=True)
         finally:

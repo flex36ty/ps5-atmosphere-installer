@@ -1,5 +1,30 @@
 # Changelog
 
+## v2026.10.08 — 2026-10-08
+
+### Servers and unified library
+
+- Keep multiple SMB and FTP servers active together and browse their games in one library. Refresh scans all active servers sequentially; transfers use the selected game's source.
+- Added a full-width `Server:` tag to each card and server details in the copy popup.
+- Added L2 server duplication with confirmation. The copy receives a new ID, starts inactive, and copies connection settings and login preferences without duplicating the game cache.
+- Fixed Triangle Edit opening the last active server instead of the highlighted entry. Saves now target the explicit server ID, including inactive entries, without changing another server's settings.
+- Retained recursive game-folder discovery/copying alongside exFAT and FFPFSC images.
+
+### Cards and navigation
+
+- Selected cards ease forward with a subtle enlargement, lift, and deeper shadow; the rounded selector follows the card.
+- Overflowing text keeps its font size, scrolls left, pauses at the end for two seconds, resets instantly, and rests for two seconds before repeating. Library card text scrolls when highlighted.
+- Moved the format badge onto the poster's top-left corner with a solid background. Moved size up and gave server information its own bottom row.
+- Cards show `Installed` without the device name; the opened game popup retains the installed location.
+- Added `Not Backported` when no backport-folder marker is detected. This label is a detection result, not proof that the game is unmodified or compatible with a particular firmware.
+
+### Updating and validation
+
+- Install the complete matching folder build: the scrolling-text graphics interface requires the updated `eboot.bin` together with `atmosphere_ui.prx` and `atmosphere_backend.prx`. Do not mix these modules with an older executable.
+- Close Atmosphere before updating and preserve `atmosphere-state`. The ZIP includes runtime files and helpers, without saved settings or credentials.
+- SMB/FTP integration checks, targeted second-server editing tests, native UI preview checks, and module signing/integrity checks passed. The final backend and UI were uploaded to the test PS5 and verified by SHA-256 readback; user confirmation of the final editing fix is pending.
+- Released as a prerelease for the existing firmware 12.70 test setup; broader firmware compatibility remains unverified.
+
 ## v2026.10.07.2 — 2026-10-07
 
 ### Library appearance and metadata

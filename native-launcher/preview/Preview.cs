@@ -13,6 +13,8 @@ internal static class Preview {
  static void Set(object o,string n,object value)=>o.GetType().GetField(n,Hidden)!.SetValue(o,value);
  static object? Call(object o,string n,params object[] args)=>o.GetType().GetMethod(n,Hidden)!.Invoke(o,args);
  static unsafe void Main() {
+  if(GlCanvas.ScrollOffset(64,0)!=0||GlCanvas.ScrollOffset(64,2)!=0||GlCanvas.ScrollOffset(64,3)!=32||GlCanvas.ScrollOffset(64,4)!=64||GlCanvas.ScrollOffset(64,5.99)!=64||GlCanvas.ScrollOffset(64,6)!=0||GlCanvas.ScrollOffset(64,7.99)!=0||GlCanvas.ScrollOffset(64,9)!=32||GlCanvas.ScrollOffset(-1,3)!=0)throw new Exception("Scrolling text timing failed");
+  Console.WriteLine("PASS: one-way scrolling, two-second end hold, instant reset, two-second start hold and non-overflow behavior");
   byte[] command=EtaHenAccess.CreateRequest(1234);
   if(command.Length!=2576 || !command.AsSpan(0,16).SequenceEqual(new byte[]{239,190,173,222,5,0,0,0,210,4,0,0,199,250,255,255})) throw new Exception("IPC wire layout mismatch");
   for(int i=16;i<command.Length;i++) if(command[i]!=0) throw new Exception("IPC reserved bytes must be zero");
@@ -40,9 +42,13 @@ internal static class Preview {
   var canvas=(GlCanvas)typeof(Launcher).GetField("_canvas",Hidden)!.GetValue(app)!;
   if(Environment.GetEnvironmentVariable("ATMOSPHERE_GL_TEST") is string glPath){glLibrary=NativeLibrary.Load(glPath);canvas.OpenHost(glLibrary);}
   using var doc=JsonDocument.Parse("""
-  {"smb":{"activeSourceId":"s1","settings":{"name":"Living Room NAS","server":"192.168.0.113","share":"data2","folder":"ps5"},"sources":[{"id":"s1","name":"Living Room NAS","protocol":"smb","server":"192.168.0.113","share":"data2","folder":"ps5"},{"id":"s2","name":"FTP Server","protocol":"ftp","server":"192.168.0.114","folder":"DATA2/ps5"}],"games":[{"id":"1","title":"Adventure Collection","titleId":"PPSA00001","minimumFirmware":"12.60","region":"EUR","backportFiles":true,"format":"ffpfsc","size":48000000000,"addedAt":3},{"id":"2","title":"Racing Collection","titleId":"PPSA00002","format":"folder","size":37000000000,"addedAt":1}],"installed":{"complete":true,"checking":false,"games":[{"titleId":"PPSA00001","location":"USB 0"}]},"job":{"title":"Adventure Collection","status":"copying","phase":"Copying","received":12000000000,"total":48000000000,"speedBytesPerSecond":80000000}},"storage":[{"id":"usb0","label":"USB Drive","freeBytes":900000000000,"external":true}]}
+  {"smb":{"activeSourceId":"s1","settings":{"name":"Living Room NAS","server":"192.168.0.113","share":"data2","folder":"ps5"},"sources":[{"id":"s1","enabled":true,"name":"Living Room NAS","protocol":"smb","server":"192.168.0.113","share":"data2","folder":"ps5"},{"id":"s2","enabled":true,"name":"FTP Server","protocol":"ftp","server":"192.168.0.114","folder":"DATA2/ps5"}],"games":[{"id":"1","sourceId":"s1","sourceName":"Living Room NAS","sourceProtocol":"smb","title":"Adventure Collection","titleId":"PPSA00001","minimumFirmware":"12.60","region":"EUR","backportFiles":true,"format":"ffpfsc","size":48000000000,"addedAt":3},{"id":"2","sourceId":"s2","sourceName":"FTP Server","sourceProtocol":"ftp","title":"Racing Collection","titleId":"PPSA00002","format":"folder","size":37000000000,"addedAt":1}],"installed":{"complete":true,"checking":false,"games":[{"titleId":"PPSA00001","location":"USB 0"}]},"job":{"title":"Adventure Collection","status":"copying","phase":"Copying","received":12000000000,"total":48000000000,"speedBytesPerSecond":80000000}},"storage":[{"id":"usb0","label":"USB Drive","freeBytes":900000000000,"external":true}]}
   """);
   Call(app,"UpdateData",doc.RootElement.Clone());
+  Set(app,"_sourceRow",1);Call(app,"EditSettings");
+  if((string)typeof(Launcher).GetField("_editSourceId",Hidden)!.GetValue(app)! != "s2" || !((string[])typeof(Launcher).GetField("_values",Hidden)!.GetValue(app)!).Contains("FTP Server"))throw new Exception("Edit did not target the highlighted second server");
+  Set(app,"_sourceRow",0);Set(app,"_modal","");
+  Console.WriteLine("PASS: edit form targets highlighted server instead of active server");
   static JsonElement State(string json)=>JsonDocument.Parse(json).RootElement.Clone();
   Call(app,"RefreshLibrary");Call(app,"RefreshLibrary");
   var backend=typeof(Launcher).GetField("_backend",Hidden)!.GetValue(app)!;
@@ -76,6 +82,7 @@ internal static class Preview {
   var context=(FrameContext)Activator.CreateInstance(typeof(FrameContext),true)!;
   uint* pixels=(uint*)NativeMemory.AllocZeroed(1920*1080*4);
   typeof(FrameContext).GetProperty("Surface")!.SetValue(context,new Surface(pixels,1920,1080));
+  typeof(FrameContext).GetProperty("DeltaSeconds")!.SetValue(context,1.0/60);
   if(glLibrary!=0){
    canvas.Clear(Color.Black);canvas.SetLibraryClip(true);
    canvas.FillRoundedRect(0,0,1920,1080,0,Color.White);canvas.SetLibraryClip(false);
@@ -112,16 +119,17 @@ internal static class Preview {
    Console.WriteLine("PASS: 4K BC7 DDS validation, compressed GPU upload and rendering");
   }
   Directory.CreateDirectory("renders");
-  foreach(var view in new[]{"library","refreshing","empty","sources","transfers","copy","deleteGame","settings"}) {
+  foreach(var view in new[]{"library","refreshing","empty","sources","transfers","copy","deleteGame","duplicateSource","settings"}) {
    Call(app,"UpdateData",doc.RootElement.Clone());
    Set(app,"_refreshActive",view=="refreshing");Set(app,"_refreshStarted",Environment.TickCount64-8000);
    if(view=="empty")Set(app,"_games",Array.Empty<JsonElement>());
-   Set(app,"_tab",view=="sources"?1:view=="transfers"?2:0);Set(app,"_modal",view=="copy"?"copy":view=="deleteGame"?"deleteGame":"");
+   Set(app,"_tab",view=="sources"?1:view=="transfers"?2:0);Set(app,"_modal",view=="copy"?"copy":view=="deleteGame"?"deleteGame":view=="duplicateSource"?"duplicateSource":"");
    if(view=="deleteGame"){Set(app,"_deleteTitle","Adventure Collection");Set(app,"_deleteGame",State("""{"titleId":"PPSA00001","location":"USB 0","path":"/mnt/usb0/homebrew/Adventure Collection.ffpfsc"}"""));}
+   if(view=="duplicateSource")Set(app,"_deleteSourceName","Living Room NAS");
    if(view=="settings") Call(app,"EditSettings");
    Set(app,"_visibleModal",(string)typeof(Launcher).GetField("_modal",Hidden)!.GetValue(app)!);
    Set(app,"_modalOpacity",1f);
-   Call(app,"OnFrame",context);
+   for(int frame=0;frame<30;frame++)Call(app,"OnFrame",context);
    if(glLibrary!=0){
     var readback=(delegate* unmanaged<void*,int>)NativeLibrary.GetExport(glLibrary,"atmosphere_gl_readback");
     if(readback(pixels)!=0)throw new Exception("OpenGL frame readback failed");

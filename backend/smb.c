@@ -101,16 +101,29 @@ static int write_all(int fd, const void *data, size_t length) {
 }
 /* Caller holds lock. Password is opt-in, private on POSIX filesystems, and
  * never included in HTTP responses or source URLs. */
+static cJSON *source_by_id(const char *id) {
+    cJSON *p; cJSON_ArrayForEach(p,sources) if(!strcmp(json_text(p,"id"),id))return p;
+    return NULL;
+}
+static bool source_enabled(const cJSON *p) {
+    const cJSON *v=cJSON_GetObjectItemCaseSensitive(p,"enabled");
+    return cJSON_IsBool(v)?cJSON_IsTrue(v):!strcmp(json_text(p,"id"),active_source);
+}
 static cJSON *capture_source(void) {
     cJSON *p = cJSON_CreateObject();
     cJSON *cfg = cJSON_Duplicate(settings, true), *list = cJSON_Duplicate(games, true);
     if (!p || !cfg || !list) { cJSON_Delete(p); cJSON_Delete(cfg); cJSON_Delete(list); return NULL; }
     cJSON_AddStringToObject(p, "id", active_source);
+    cJSON_AddBoolToObject(p,"enabled",!source_by_id(active_source)||source_enabled(source_by_id(active_source)));
     cJSON_AddItemToObject(p, "settings", cfg);
     cJSON_AddItemToObject(p, "games", list);
     cJSON_AddBoolToObject(p, "remember", remember);
     cJSON_AddStringToObject(p, "password", password);
     return p;
+}
+static void sync_source(void) {
+    cJSON *p;int i=0;
+    cJSON_ArrayForEach(p,sources){if(!strcmp(json_text(p,"id"),active_source)){cJSON_ReplaceItemInArray(sources,i,capture_source());return;}i++;}
 }
 static void load_source(const cJSON *p) {
     cJSON_Delete(settings); cJSON_Delete(games);
@@ -123,6 +136,7 @@ static void load_source(const cJSON *p) {
     remember = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(p, "remember"));
 }
 static int save_locked(void) {
+    sync_source();
     cJSON *o = cJSON_CreateObject();
     cJSON *cfg = cJSON_Duplicate(settings, true), *list = cJSON_Duplicate(games, true);
     if (!o || !cfg || !list) { cJSON_Delete(o); cJSON_Delete(cfg); cJSON_Delete(list); return -1; }
@@ -816,6 +830,43 @@ end:
     if (rc && !*err) strcpy(err, "Copy interrupted. Partial data is kept for resume.");
     return rc;
 }
+static char scan_selection[24];
+static void scan_servers(void) {
+    pthread_mutex_lock(&lock);
+    sync_source();
+    char selected[24];copy_text(selected,sizeof selected,active_source);
+    copy_text(scan_selection,sizeof scan_selection,active_source);
+    cJSON *profiles=cJSON_Duplicate(sources,true);
+    pthread_mutex_unlock(&lock);
+    unsigned completed=0,failed=0,total=0;cJSON *p;char last_error[256]={0};
+    cJSON_ArrayForEach(p,profiles){
+        if(!source_enabled(p)||halted())continue;
+        pthread_mutex_lock(&lock);load_source(p);pthread_mutex_unlock(&lock);
+        char err[256]={0};cJSON *cfg=cJSON_GetObjectItemCaseSensitive(p,"settings");
+        RemoteSource *s=connect_source(cfg,json_text(p,"password"),err,sizeof err);
+        cJSON *found=cJSON_CreateArray();unsigned visited=0;artwork_bytes=0;
+        int rc=s&&found?discover(s,json_text(cfg,"folder"),0,&visited,found):-1;
+        if(rc)copy_text(last_error,sizeof last_error,*err?err:s?remote_error(s):"Cannot connect to server.");
+        if(s)remote_destroy(s);
+        pthread_mutex_lock(&lock);
+        if(!rc){cJSON_Delete(games);games=found;found=NULL;completed++;revision++;}
+        else failed++;
+        total+=(unsigned)cJSON_GetArraySize(games);
+        sync_source();
+        pthread_mutex_unlock(&lock);
+        cJSON_Delete(found);
+        if(!rc)installed_refresh(json_text(cfg,"destinationFolder"));
+    }
+    cJSON_Delete(profiles);
+    pthread_mutex_lock(&lock);
+    load_source(source_by_id(selected));
+    scan_selection[0]=0;
+    snprintf(message,sizeof message,"Scan complete: %u games, %u servers refreshed, %u unavailable (cached games retained).",total,completed,failed);
+    if(failed)snprintf(message,sizeof message,"Scan complete: %u games; %u servers unavailable, cache retained. %.150s",total,failed,last_error);
+    busy=false;
+    if(save_locked())copy_text(message,sizeof message,"Scan finished, but server state could not be saved.");
+    pthread_mutex_unlock(&lock);
+}
 static void *worker(void *unused) {
     (void)unused;
     for (;;) {
@@ -823,6 +874,7 @@ static void *worker(void *unused) {
         while (!pending && !stopping) pthread_cond_wait(&changed, &lock);
         if (stopping) { pthread_mutex_unlock(&lock); break; }
         int action = pending; pending = 0;
+        if(action==1){pthread_mutex_unlock(&lock);scan_servers();continue;}
         cJSON *cfg = cJSON_Duplicate(settings, true), *work = cJSON_Duplicate(job, true);
         char secret[256]; copy_text(secret, sizeof secret, password);
         pthread_mutex_unlock(&lock);
@@ -885,12 +937,32 @@ cJSON *smb_snapshot(bool include_games) {
         cJSON_AddStringToObject(item, "share", json_text(cfg, "share"));
         cJSON_AddStringToObject(item,"protocol",json_text(cfg,"protocol"));
         cJSON_AddStringToObject(item,"port",json_text(cfg,"port"));
+        cJSON_AddStringToObject(item,"folder",json_text(cfg,"folder"));
+        cJSON_AddStringToObject(item,"username",json_text(cfg,"username"));
+        cJSON_AddStringToObject(item,"domain",json_text(cfg,"domain"));
+        cJSON_AddStringToObject(item,"destinationFolder",json_text(cfg,"destinationFolder"));
+        cJSON_AddBoolToObject(item,"remember",!strcmp(json_text(p,"id"),active_source)?remember:cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(p,"remember")));
+        cJSON_AddBoolToObject(item,"enabled",source_enabled(p));
         cJSON_AddItemToArray(list, item);
     }
     cJSON_AddItemToObject(o, "sources", list);
-    cJSON_AddStringToObject(o, "activeSourceId", active_source);
-    cJSON_AddItemToObject(o, "settings", cJSON_Duplicate(settings, true));
-    if (include_games) cJSON_AddItemToObject(o, "games", cJSON_Duplicate(games, true));
+    cJSON *view=*scan_selection?source_by_id(scan_selection):NULL;
+    cJSON_AddStringToObject(o, "activeSourceId", view?scan_selection:active_source);
+    cJSON_AddItemToObject(o, "settings", cJSON_Duplicate(view?cJSON_GetObjectItemCaseSensitive(view,"settings"):settings, true));
+    if (include_games) {
+        cJSON *all=cJSON_CreateArray();
+        cJSON_ArrayForEach(p,sources){
+            if(!source_enabled(p))continue;
+            bool current=!strcmp(json_text(p,"id"),active_source);
+            const cJSON *cfg=current?settings:cJSON_GetObjectItemCaseSensitive(p,"settings");
+            cJSON *g,*catalog=current?games:cJSON_GetObjectItemCaseSensitive(p,"games");
+            cJSON_ArrayForEach(g,catalog){cJSON *copy=cJSON_Duplicate(g,true);
+                set_text(copy,"sourceId",json_text(p,"id"));set_text(copy,"sourceName",*json_text(cfg,"name")?json_text(cfg,"name"):json_text(cfg,"server"));
+                set_text(copy,"sourceProtocol",source_protocol(cfg));cJSON_AddItemToArray(all,copy);
+            }
+        }
+        cJSON_AddItemToObject(o,"games",all);
+    }
     cJSON_AddNumberToObject(o, "revision", revision);
     if (job) {
         cJSON *j = cJSON_Duplicate(job, true);
@@ -900,8 +972,8 @@ cJSON *smb_snapshot(bool include_games) {
     }
     cJSON_AddBoolToObject(o, "busy", busy);
     cJSON_AddBoolToObject(o, "available", started);
-    cJSON_AddBoolToObject(o, "remember", remember);
-    cJSON_AddBoolToObject(o, "hasPassword", *password != 0);
+    cJSON_AddBoolToObject(o, "remember", view?cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(view,"remember")):remember);
+    cJSON_AddBoolToObject(o, "hasPassword", view?*json_text(view,"password")!=0:*password != 0);
     cJSON_AddStringToObject(o, "message", message);
     pthread_mutex_unlock(&lock); return o;
 }
@@ -915,6 +987,24 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
         pause_requested = !strcmp(action, "pause"); cancel_requested = !strcmp(action, "cancel"); goto end;
     }
     if (busy) { code = 409; copy_text(error, cap, "Wait for the server operation to finish."); goto end; }
+    if(!strcmp(action,"duplicateSource")){
+        if(!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(input,"confirmed"))){code=400;copy_text(error,cap,"Confirm duplicating this server first.");goto end;}
+        if(cJSON_GetArraySize(sources)>=8){code=400;copy_text(error,cap,"Up to eight servers are supported.");goto end;}
+        sync_source();cJSON *original=source_by_id(json_text(input,"sourceId"));
+        if(!original){code=404;copy_text(error,cap,"Server not found.");goto end;}
+        cJSON *copy=cJSON_Duplicate(original,true);if(!copy){code=503;goto end;}
+        char previous[24],id[24],name[256];copy_text(previous,sizeof previous,active_source);random_hex(id,8);
+        set_text(copy,"id",id);cJSON_DeleteItemFromObjectCaseSensitive(copy,"enabled");cJSON_AddBoolToObject(copy,"enabled",false);
+        cJSON_DeleteItemFromObjectCaseSensitive(copy,"games");cJSON_AddArrayToObject(copy,"games");
+        cJSON *cfg=cJSON_GetObjectItemCaseSensitive(copy,"settings");
+        snprintf(name,sizeof name,"%.240s (copy)",*json_text(cfg,"name")?json_text(cfg,"name"):json_text(cfg,"server"));set_text(cfg,"name",name);
+        cJSON_AddItemToArray(sources,copy);load_source(copy);
+        if(save_locked()){
+            load_source(source_by_id(previous));cJSON_DeleteItemFromArray(sources,cJSON_GetArraySize(sources)-1);
+            code=503;copy_text(error,cap,"Cannot save the copied server.");
+        }else{revision++;copy_text(message,sizeof message,"Server copied. Edit its settings, then activate it.");}
+        goto end;
+    }
     if (!strcmp(action, "deleteSource")) {
         int index = 0, found = -1; cJSON *p;
         cJSON_ArrayForEach(p, sources) {
@@ -934,15 +1024,14 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
         cJSON_Delete(previous); goto end;
     }
     if (!strcmp(action,"deactivateSource")) {
-        if(!*active_source || strcmp(active_source,json_text(input,"sourceId"))){code=409;copy_text(error,cap,"Select the active server to deactivate it.");goto end;}
-        cJSON *previous=capture_source(),*p;int index=0,found=-1;
-        if(!previous){code=503;copy_text(error,cap,"Cannot save server settings.");goto end;}
-        cJSON_ArrayForEach(p,sources){if(!strcmp(json_text(p,"id"),active_source)){found=index;break;}index++;}
-        if(found<0){cJSON_Delete(previous);code=409;goto end;}
-        cJSON_ReplaceItemInArray(sources,found,cJSON_Duplicate(previous,true));load_source(NULL);
-        if(save_locked()){load_source(previous);code=503;copy_text(error,cap,"Cannot save servers.");}
-        else{revision++;copy_text(message,sizeof message,"Server deactivated. Select a server to activate it.");}
-        cJSON_Delete(previous);goto end;
+        cJSON *target=source_by_id(json_text(input,"sourceId"));
+        if(!target){code=404;goto end;}
+        bool prior=source_enabled(target);
+        cJSON_DeleteItemFromObjectCaseSensitive(target,"enabled");cJSON_AddBoolToObject(target,"enabled",false);
+        if(save_locked()){target=source_by_id(json_text(input,"sourceId"));cJSON_ReplaceItemInObjectCaseSensitive(target,"enabled",cJSON_CreateBool(prior));code=503;}
+        else{revision++;copy_text(message,sizeof message,"Server deactivated. Other active servers remain in the library.");}
+        goto end;
+
     }
     if (!strcmp(action, "addSource") || !strcmp(action, "selectSource")) {
         bool adding = !strcmp(action, "addSource");
@@ -954,16 +1043,21 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
             index++;
         }
         if (!adding && !target) { code = 404; copy_text(error, cap, "server not found."); goto end; }
-        if (!adding && !strcmp(json_text(target, "id"), active_source)) goto end;
+        if (!adding && !strcmp(json_text(target, "id"), active_source)) {
+            cJSON_DeleteItemFromObjectCaseSensitive(target,"enabled");cJSON_AddBoolToObject(target,"enabled",true);
+            if(save_locked())code=503;else revision++;goto end;
+        }
         cJSON *previous = capture_source();
         if (current_index >= 0) cJSON_ReplaceItemInArray(sources, current_index, cJSON_Duplicate(previous, true));
         if (adding) {
             target = cJSON_CreateObject(); char id[24]; random_hex(id, 8);
             cJSON_AddStringToObject(target, "id", id);
+            cJSON_AddBoolToObject(target,"enabled",true);
             cJSON_AddItemToObject(target, "settings", cJSON_CreateObject());
             cJSON_AddItemToObject(target, "games", cJSON_CreateArray());
             cJSON_AddItemToArray(sources, target);
         }
+        cJSON_DeleteItemFromObjectCaseSensitive(target,"enabled");cJSON_AddBoolToObject(target,"enabled",true);
         load_source(target);
         if (save_locked()) {
             load_source(previous);
@@ -989,6 +1083,12 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
             strlen(json_text(input, "domain")) > 255 || strlen(json_text(input, "password")) > 255) {
             code = 400; copy_text(error, cap, "Enter a server, an SMB share when applicable, and a folder without a leading slash or '..'."); goto end;
         }
+        const char *edit_id=json_text(input,"sourceId");
+        if(*edit_id){
+            sync_source();cJSON *target=source_by_id(edit_id);
+            if(!target){code=404;copy_text(error,cap,"Server not found.");goto end;}
+            load_source(target);
+        }
         cJSON *old = settings; settings = cJSON_CreateObject();
         const char *keys[] = {"server", "share", "folder", "username", "domain", "protocol", "port"};
         for (size_t i = 0; i < 7; i++) cJSON_AddStringToObject(settings, keys[i], json_text(input, keys[i]));
@@ -1011,10 +1111,14 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
             cJSON_Delete(settings); settings = old; copy_text(password, sizeof password, previous); remember = prior;
             if (source_changed) { cJSON_Delete(games); games = old_games; }
             code = 503; copy_text(error, cap, "Cannot save server settings.");
-        } else { cJSON_Delete(old); if (source_changed) { cJSON_Delete(old_games); revision++; } }
+        } else { cJSON_Delete(old); if (source_changed) cJSON_Delete(old_games); revision++; }
         memset(previous, 0, sizeof previous); goto end;
     }
-    if (!*json_text(settings, "server")) { code = 400; copy_text(error, cap, "Configure a server first."); goto end; }
+    if(!strcmp(action,"copy")||!strcmp(action,"resume")){
+        const char *id=!strcmp(action,"resume")?json_text(job,"sourceId"):json_text(input,"sourceId");
+        if(*id){sync_source();cJSON *p=source_by_id(id);if(!p||!source_enabled(p)){code=409;copy_text(error,cap,"Activate the game's server first.");goto end;}load_source(p);}
+    }
+    if (strcmp(action,"scan") && !*json_text(settings, "server")) { code = 400; copy_text(error, cap, "Configure a server first."); goto end; }
     if (!strcmp(action, "scan")) { installed_refresh(json_text(settings,"destinationFolder")); pending = 1; busy = true; }
     else if (!strcmp(action, "copy") || !strcmp(action, "resume")) {
         bool resume = !strcmp(action, "resume");
@@ -1048,6 +1152,7 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
             else if (usb_root && !drive->external && !atmosphere.desktop) { code = 400; copy_text(error, cap, "Root placement is only available for USB storage."); }
             else {
                 next = cJSON_Duplicate(g, true); char id[24]; random_hex(id, 8); set_text(next, "id", id);
+                set_text(next,"sourceId",active_source);
                 set_text(next, "server", json_text(settings, "server")); set_text(next, "share", json_text(settings, "share"));
                 set_text(next,"protocol",json_text(settings,"protocol"));set_text(next,"port",json_text(settings,"port"));
                 set_text(next, "root", drive->root); set_text(next, "storageId", drive->id);
@@ -1107,6 +1212,7 @@ int smb_start(void) {
         cJSON_Delete(saved);
     }
     if (!cJSON_GetArraySize(sources) && !saved_empty_sources) cJSON_AddItemToArray(sources, capture_source());
+    cJSON *migration;cJSON_ArrayForEach(migration,sources)if(!cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(migration,"enabled")))cJSON_AddBoolToObject(migration,"enabled",!strcmp(json_text(migration,"id"),active_source));
     installed_start();
     cJSON *profile;cJSON_ArrayForEach(profile,sources)installed_refresh(json_text(cJSON_GetObjectItemCaseSensitive(profile,"settings"),"destinationFolder"));
     installed_refresh(json_text(settings,"destinationFolder"));

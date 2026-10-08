@@ -15,9 +15,21 @@ internal sealed unsafe class GlCanvas : IDisposable
     [StructLayout(LayoutKind.Sequential)]
     private struct Api {
         public uint Version, Size;
-        public nint Open, Close, Begin, Present, Rect, Text, Measure, Texture, Image, DeleteTexture, Error, Clip, Artwork;
+        public nint Open, Close, Begin, Present, Rect, Text, Measure, Texture, Image, DeleteTexture, Error, Clip, Artwork, ScrollingText;
     }
     private Api _api;
+    public float Zoom=1,CenterX,CenterY,Lift;
+    public bool AnimateText=true;
+    public double TextSeconds;
+    private float X(float x)=>CenterX+(x-CenterX)*Zoom;
+    private float Y(float y)=>CenterY+(y-CenterY)*Zoom-Lift;
+    public void ResetTransform(){Zoom=1;CenterX=CenterY=Lift=0;}
+    internal static float ScrollOffset(float overflow,double seconds){
+        if(overflow<=0||seconds<=2)return 0;
+        double travel=overflow/32.0,cycle=4+travel,t=seconds%cycle;
+        if(t<2)return 0;if(t<2+travel)return (float)((t-2)*32);
+        return overflow;
+    }
     public void SetLibraryClip(bool enabled){if(_opened)((delegate* unmanaged<int,void>)_api.Clip)(enabled?1:0);}
     private bool _opened;
     private bool _borrowed;
@@ -29,8 +41,8 @@ internal sealed unsafe class GlCanvas : IDisposable
     public void Adopt(nint address) {
         if(address==0 || _opened)throw new IOException("Invalid native graphics handoff");
         Api api=*(Api*)address;
-        if(api.Clip==0||api.Artwork==0)throw new IOException("Native graphics artwork unavailable");
-        if(api.Version!=1||api.Size!=sizeof(Api)||api.Begin==0||api.Present==0||api.Rect==0||api.Text==0||api.Measure==0||api.Texture==0||api.Image==0||api.DeleteTexture==0||api.Error==0)
+        if(api.Clip==0||api.Artwork==0||api.ScrollingText==0)throw new IOException("Native graphics artwork unavailable");
+        if(api.Version!=2||api.Size!=sizeof(Api)||api.Begin==0||api.Present==0||api.Rect==0||api.Text==0||api.Measure==0||api.Texture==0||api.Image==0||api.DeleteTexture==0||api.Error==0)
             throw new IOException("Native graphics interface mismatch");
         _api=api;_borrowed=true;_opened=true;
     }
@@ -38,7 +50,7 @@ internal sealed unsafe class GlCanvas : IDisposable
     private string Error()=>Marshal.PtrToStringUTF8(((delegate* unmanaged<nint>)_api.Error)())??"OpenGL failed";
 #if ATMOSPHERE_GL_PREVIEW
     public void OpenHost(nint library) {
-        Api api=new(){Version=1,Size=(uint)sizeof(Api)};
+        Api api=new(){Version=2,Size=(uint)sizeof(Api)};
         var start=(delegate* unmanaged<nuint,void*,int>)NativeLibrary.GetExport(library,"atmosphere_gl_start");
         if(start((nuint)sizeof(Api),&api)!=0)throw new IOException("Host GL handoff failed");
         _api=api;
@@ -48,10 +60,10 @@ internal sealed unsafe class GlCanvas : IDisposable
 #endif
     public void Open() {
         byte[] path=Encoding.UTF8.GetBytes("/app0/sce_module/atmosphere_gl.prx\0");
-        Api api=new(){Version=1,Size=(uint)sizeof(Api)}; int result=int.MinValue,handle;
+        Api api=new(){Version=2,Size=(uint)sizeof(Api)}; int result=int.MinValue,handle;
         fixed(byte* p=path) handle=KernelModule.sceKernelLoadStartModule(p,(nuint)sizeof(Api),&api,0,null,&result);
         if(handle<0||result!=0)throw new IOException($"OpenGL module 0x{handle:X8}; init 0x{result:X8}");
-        if(api.Version!=1||api.Size!=sizeof(Api)||api.Open==0||api.Close==0||api.Begin==0||api.Present==0||api.Rect==0||api.Text==0||api.Measure==0||api.Texture==0||api.Image==0||api.DeleteTexture==0||api.Error==0)throw new IOException("OpenGL interface mismatch");
+        if(api.Version!=2||api.Size!=sizeof(Api)||api.Open==0||api.Close==0||api.Begin==0||api.Present==0||api.Rect==0||api.Text==0||api.Measure==0||api.Texture==0||api.Image==0||api.DeleteTexture==0||api.Error==0)throw new IOException("OpenGL interface mismatch");
         _api=api;
         if(((delegate* unmanaged<int>)api.Open)()!=0)throw new IOException(Error());
         _opened=true;
@@ -81,6 +93,7 @@ internal sealed unsafe class GlCanvas : IDisposable
         }
     }
     private void Rect(float x,float y,float w,float h,float radius,Color top,Color bottom){
+        x=X(x);y=Y(y);w*=Zoom;h*=Zoom;radius*=Zoom;
         top=Tint(top);bottom=Tint(bottom);
         if(_opened)((delegate* unmanaged<float,float,float,float,float,uint,uint,void>)_api.Rect)(x,y,w,h,radius,top.Value,bottom.Value);
         else if(top.Value==bottom.Value)_fallback.FillRoundedRect((int)x,(int)y,(int)w,(int)h,(int)radius,top);
@@ -132,7 +145,8 @@ internal sealed unsafe class GlCanvas : IDisposable
         color=Tint(color);
         if(!_opened){_fallback.DrawTextClipped(text,x,y,scale,color,width);return;}
         byte[] utf8=Encoding.UTF8.GetBytes(text+"\0");
-        fixed(byte* p=utf8)((delegate* unmanaged<byte*,float,float,float,uint,float,void>)_api.Text)(p,x,y,FontSize(scale),color.Value,width);
+        float offset=AnimateText?ScrollOffset(TextWidth(text,scale)-width,TextSeconds):0;
+        fixed(byte* p=utf8)((delegate* unmanaged<byte*,float,float,float,uint,float,float,void>)_api.ScrollingText)(p,X(x),Y(y),FontSize(scale)*Zoom,color.Value,width*Zoom,offset*Zoom);
     }
     public void DrawTextCentered(string text,int y,int scale,Color color){
         if(text.Any(IsButton)){DrawText(text,(1920-TextWidth(text,scale))/2,y,scale,color);return;}
@@ -155,8 +169,8 @@ internal sealed unsafe class GlCanvas : IDisposable
             if(id==0)throw new IOException("OpenGL cover upload failed");
             _textures.Add(key,id);
         }
-        if(crop)((delegate* unmanaged<uint,float,float,float,float,float,float,float,int,void>)_api.Artwork)(id,x,y,w,h,(float)image.Width/image.Height,radius,Math.Clamp(opacity*Opacity,0,1),frosted?1:0);
-        else ((delegate* unmanaged<uint,float,float,float,float,void>)_api.Image)(id,x,y,w,h);
+        if(crop)((delegate* unmanaged<uint,float,float,float,float,float,float,float,int,void>)_api.Artwork)(id,X(x),Y(y),w*Zoom,h*Zoom,(float)image.Width/image.Height,radius*Zoom,Math.Clamp(opacity*Opacity,0,1),frosted?1:0);
+        else ((delegate* unmanaged<uint,float,float,float,float,void>)_api.Image)(id,X(x),Y(y),w*Zoom,h*Zoom);
     }
     public void ClearImages(){if(_opened)foreach(uint id in _textures.Values)((delegate* unmanaged<uint,void>)_api.DeleteTexture)(id);_textures.Clear();}
     public bool BlitDds(DdsImage image,int x,int y,int w,int h,float opacity=1,int radius=0,bool frosted=false){
@@ -166,7 +180,7 @@ internal sealed unsafe class GlCanvas : IDisposable
             _textures.Add(image.Data,id);
         }
         if(id==0)return false;
-        ((delegate* unmanaged<uint,float,float,float,float,float,float,float,int,void>)_api.Artwork)(id,x,y,w,h,(float)image.Width/image.Height,radius,opacity*Opacity,frosted?1:0);
+        ((delegate* unmanaged<uint,float,float,float,float,float,float,float,int,void>)_api.Artwork)(id,X(x),Y(y),w*Zoom,h*Zoom,(float)image.Width/image.Height,radius*Zoom,opacity*Opacity,frosted?1:0);
         return true;
     }
     public void ReleaseDds(DdsImage image){if(_textures.Remove(image.Data,out uint id)&&_opened)((delegate* unmanaged<uint,void>)_api.DeleteTexture)(id);}

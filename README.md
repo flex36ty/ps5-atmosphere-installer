@@ -14,15 +14,16 @@ The current application uses a native OpenGL interface and an in-process C backe
 
 ## Features
 
-- Multiple SMB and FTP servers, including anonymous/guest connections; activate, deactivate, edit, and remove saved servers.
+- Multiple simultaneously active SMB and FTP servers in one library, including anonymous/guest connections; activate, deactivate, edit, duplicate, and remove saved servers.
 - Discovery of game folders, exFAT images, and FFPFSC images, with metadata and cached cover art where supported.
-- Smooth scrolling, controller focus animations, square cover cards, and a frosted background.
+- Smooth scrolling, animated card lift, square cover cards, and a frosted background. Overflowing text scrolls left with two-second pauses at the end and after resetting.
+- Solid format badges on posters, a dedicated server row, and compact Installed status on cards; the copy popup retains the installed location.
 - Sorting by title or date added.
 - Copy to internal storage or USB, including a USB-root destination option.
 - Automatic repair of permission-denied errors on the default internal destination and staging folders, using a bundled etaHEN helper.
 - Transfer progress, speed, pause/resume, and SHA-256 verification.
 - Installed-game detection by metadata title ID, with installed-source deletion through ShadowMountPlus.
-- Minimum firmware display when present in metadata. The Backported label indicates detected `fakelib`/`fakelib2` content; it does not guarantee compatibility.
+- Minimum firmware display when present in metadata. Backported indicates detected `fakelib`/`fakelib2` content; Not Backported means no marker was detected. Neither label guarantees compatibility or proves that files are unmodified.
 - Subdued metadata tags and short region labels derived from a valid game content ID. Region is a content territory, not a guarantee of language support or region locking. Rescan after updating to populate the new field; unavailable regions show Unknown.
 - ShadowMountPlus rescan requests after transfers. Detection may complete after Atmosphere closes.
 
@@ -38,9 +39,9 @@ Internal permission repair also requires etaHEN's ELF loader on port 9021. If `/
 
 ## Installation
 
-These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.07.2.zip` from the [release page](https://github.com/flex36ty/ps5-atmosphere-installer/releases/tag/v2026.10.07.2). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
+These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.08.zip` from the [GitHub release](https://github.com/flex36ty/ps5-atmosphere-installer/releases/tag/v2026.10.08) or [Gitea release](http://192.168.0.217:3003/flex360/ps5-atmosphere-installer/releases/tag/v2026.10.08) (local network). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
 
-The v2026.10.07.2 prerelease adds frosted cards, a continuous rounded selector, region tags, and transfer diagnostics, and retains the permission helper. Close Atmosphere before updating, preserve `atmosphere-state`, and rescan once for region metadata. Build and regression tests passed; automatic permission repair and the final selector adjustment still await console confirmation. See the changelog for details.
+The v2026.10.08 prerelease adds a unified multi-server library, server duplication, revised cards, one-way text scrolling, and a fix for editing the wrong server. Close Atmosphere before updating and preserve `atmosphere-state`. Replace the complete build: its updated graphics interface needs the matching executable and modules. Build and regression checks passed; the final server-edit fix has been uploaded and verified but still awaits user confirmation on the console. See the changelog for details. The demo and screenshots above show an earlier layout.
 
 1. Start your working etaHEN/kstuff session and ensure ShadowMountPlus is available.
 2. Extract the complete Atmosphere folder build on your computer. Keep its supplied directory structure and runtime files intact.
@@ -76,6 +77,8 @@ Open **Servers** and press **Square** to add a server. Choose SMB or FTP and ent
 
 Save the server, highlight it, and press **Cross** so its status reads **ACTIVE**. Go to **Library** and press **Square** to scan. If the list stays empty, check the server path, permissions, and that the PS5 can reach the server on your network.
 
+You can leave several servers active. Library refresh scans them sequentially and combines their games; each card identifies its server. Deactivating one server hides its games without deactivating the others. Highlight a server and press **Triangle** to edit that entry, or **L2** to duplicate it after confirmation. Duplicates start inactive so you can edit them before activation. Copies and scans still use a single worker; this does not enable concurrent transfers.
+
 ## Usage
 
 1. Launch Atmosphere from the registered folder application.
@@ -98,7 +101,9 @@ Game files and configured server credentials are not included in this repository
 | Triangle in Library | Change sort |
 | R2 on an installed game | Open delete confirmation |
 | Square in Servers | Add server |
-| Triangle in Servers | Edit active server |
+| L2 in Library | Open Servers |
+| Triangle in Servers | Edit highlighted server, active or inactive |
+| L2 in Servers | Duplicate highlighted server with confirmation |
 | R2 in Servers | Remove selected server |
 | Options | Close Atmosphere |
 

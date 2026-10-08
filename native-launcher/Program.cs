@@ -20,6 +20,9 @@ internal sealed class Launcher : ProsperoApp
     private float _libraryScroll;
     private JpegImage? _fixedBackground;
     private double _frameDelta;
+    private float[] _cardLift=System.Array.Empty<float>();
+    private string _motionKey="";
+    private double _textSeconds;
     private float _driveY=440,_sourceY=260,_fieldY=301,_transferProgress;
     private float Ease(float current,float target)=>current+(target-current)*(float)(1-Math.Exp(-14*_frameDelta));
     private void FocusRow(GlCanvas s,int x,int y,int width,int height) {
@@ -133,16 +136,16 @@ internal sealed class Launcher : ProsperoApp
         TagFormat=Color.FromRgb(55,55,74),TagBackport=Color.FromRgb(66,56,55),TagSize=Color.FromRgb(42,62,75),
         TagRegion=Color.FromRgb(48,59,78),TagNeutral=Color.FromRgb(43,55,69),TagInstalled=Color.FromRgb(44,63,58);
     private static string RegionLabel(JsonElement game)=>Text(game,"region") is "US" or "EUR" or "JPN" or "ASIA" or "KOR" ? Text(game,"region") : "Unknown";
-    private static void MetadataTag(GlCanvas s,int x,int y,int width,string text,Color fill) {
+    private static void MetadataTag(GlCanvas s,int x,int y,int width,string text,Color fill,int scale=2) {
         // A faint translucent surface and top edge keep tags soft on either panel.
         s.FillRoundedRect(x,y,width,33,9,Color.White.WithAlpha(6));
         s.FillRoundedRect(x,y,width,33,9,fill.WithAlpha(18));
         s.FillRoundedRect(x+9,y,width-18,1,0,Color.White.WithAlpha(11));
-        s.DrawTextClipped(text,x+10,y+8,2,Color.FromRgb(184,196,209),width-20);
+        s.DrawTextClipped(text,x+10,y+(scale==1?12:8),scale,Color.FromRgb(184,196,209),width-20);
     }
     private void StartCopy(bool allowDuplicate) {
         var drives=Array(Get(_data,"storage"));if(_drive<0||_drive>=drives.Length)return;
-        Send("copy",("gameId",_copyId),("storageId",Text(drives[_drive],"id")),("usbRoot",_root&&Flag(drives[_drive],"external")),("allowDuplicate",allowDuplicate));_modal="";_tab=2;
+        Send("copy",("gameId",_copyId),("sourceId",Text(_copyGame,"sourceId")),("storageId",Text(drives[_drive],"id")),("usbRoot",_root&&Flag(drives[_drive],"external")),("allowDuplicate",allowDuplicate));_modal="";_tab=2;
     }
     private JsonElement[] Games()=>_games;
     private void SortGames() {
@@ -152,6 +155,7 @@ internal sealed class Launcher : ProsperoApp
     private void UpdateData(JsonElement data)
     {
         string selectedPath=_games.Length>0?Text(_games[Math.Clamp(_selected,0,_games.Length-1)],"path"):"";
+        string selectedSource=_games.Length>0?Text(_games[Math.Clamp(_selected,0,_games.Length-1)],"sourceId"):"";
         _data=data; _ready=true;
         var background=Get(data,"deleteResult");
         string backgroundId=Text(background,"requestId")+Text(background,"state");
@@ -162,7 +166,7 @@ internal sealed class Launcher : ProsperoApp
         }
         string source=Text(Smb,"activeSourceId");
         bool changed=source!=_source;
-        if(changed) { _source=source; _selected=0; _games=System.Array.Empty<JsonElement>(); ClearCovers();_lastRefresh="Not refreshed this session"; }
+        if(changed) _source=source;
         if(Get(Smb,"games").ValueKind==JsonValueKind.Array) {
             var incoming=Array(Get(Smb,"games"));
             // Transfer-progress snapshots repeat the library. Preserve its textures.
@@ -170,7 +174,7 @@ internal sealed class Launcher : ProsperoApp
             foreach(var game in _games)previousCovers[Text(game,"id")]=Text(game,"cover");
             bool coversChanged=incoming.Length!=_games.Length || incoming.Any(g=>!previousCovers.TryGetValue(Text(g,"id"),out string? cover) || cover!=Text(g,"cover"));
             _games=incoming; SortGames(); if(coversChanged)ClearCovers();
-            int retained=changed?-1:System.Array.FindIndex(_games,g=>Text(g,"path")==selectedPath);
+            int retained=System.Array.FindIndex(_games,g=>Text(g,"path")==selectedPath&&Text(g,"sourceId")==selectedSource);
             if(retained>=0)_selected=retained;
         }
         string error=Text(data,"error");
@@ -200,8 +204,7 @@ internal sealed class Launcher : ProsperoApp
     private void RefreshLibrary() {
         if(_refreshPending || _refreshActive || Flag(Smb,"busy")) return;
         if(Array(Get(Smb,"sources")).Length==0){_tab=1;_status="Press □ to add a server.";return;}
-        if(_source.Length==0){_tab=1;_status="Select a server and press × to activate it.";return;}
-        if(Text(Get(Smb,"settings"),"server").Length==0) {EditSettings();return;}
+        if(!Array(Get(Smb,"sources")).Any(x=>Flag(x,"enabled")&&Text(x,"server").Length>0)){_tab=1;_status="Configure and activate a server to refresh.";return;}
         _refreshPending=true;_refreshStarted=Environment.TickCount64;Send("scan");_status="Refresh requested...";
     }
     protected override void OnFrame(FrameContext context)
@@ -210,6 +213,9 @@ internal sealed class Launcher : ProsperoApp
         DrainCoverResults(_canvas);
         var s=_canvas;
         _frameDelta=Math.Clamp(context.DeltaSeconds,0,0.1);
+        string motionKey=$"{_tab}:{_selected}:{_sourceRow}:{_modal}:{_field}";
+        if(motionKey!=_motionKey){_motionKey=motionKey;_textSeconds=0;}else _textSeconds+=_frameDelta;
+        s.TextSeconds=_textSeconds;s.AnimateText=true;s.ResetTransform();
         s.Clear(Ink);
         DrawBackdrop(s);
         s.FillVerticalGradient(0,0,1920,240,Color.FromRgb(28,48,83).WithAlpha(200),Ink.WithAlpha(90));
@@ -243,6 +249,13 @@ internal sealed class Launcher : ProsperoApp
         s.Opacity=_modalOpacity*_modalOpacity*(3-2*_modalOpacity);
         if(_visibleModal=="copy") DrawCopy(s);
         else if(_visibleModal=="settings") DrawSettings(s);
+        else if(_visibleModal=="duplicateSource") {
+            Box(s,"DUPLICATE SERVER?");
+            s.DrawTextClipped(_deleteSourceName,355,350,4,Color.White,1190);
+            s.DrawText("Copies connection settings and saved login preferences.",355,445,2,Muted);
+            s.DrawText("The new entry starts inactive so you can edit it first.",355,495,2,Muted);
+            s.DrawText("×  Duplicate server     ○  Cancel",355,700,3,Blue);
+        }
         else if(_visibleModal=="deleteSource") {
             Box(s,"DELETE SERVER?");
             s.DrawTextClipped(_deleteSourceName,355,350,4,Color.White,1190);
@@ -282,7 +295,7 @@ internal sealed class Launcher : ProsperoApp
     {
         var games=Games(); var cfg=Get(Smb,"settings");
         bool refreshing=_refreshPending||_refreshActive;
-        s.DrawTextClipped(Text(cfg,"name").Length>0?Text(cfg,"name"):Text(cfg,"server")+" / "+Text(cfg,"share"),76,178,3,Color.White,700);
+        s.DrawTextClipped("All active servers · "+Array(Get(Smb,"sources")).Count(x=>Flag(x,"enabled")),76,178,3,Color.White,700);
         s.DrawText($"{games.Length} GAMES  /  {(_sort==0?"A - Z":"NEWEST FIRST")}",830,184,2,Muted);
         s.FillRoundedRect(1370,158,466,62,16,refreshing?Panel:Color.FromRgb(32,73,75));
         s.DrawText(refreshing?"REFRESH IN PROGRESS":Flag(Smb,"busy")?"TRANSFER ACTIVE":"□  REFRESH LIBRARY",1396,180,2,Blue);
@@ -301,17 +314,27 @@ internal sealed class Launcher : ProsperoApp
         float ease=(float)(1-Math.Exp(-14*_frameDelta));
         _focusX+=(targetX-_focusX)*ease;_focusY+=(targetY-_focusY)*ease;
         s.SetLibraryClip(true);
+        if(_cardLift.Length!=games.Length)_cardLift=new float[games.Length];
+        for(int i=0;i<_cardLift.Length;i++)_cardLift[i]=Ease(_cardLift[i],i==_selected?1:0);
         if(games.Length>0){
             int fx=(int)_focusX,fy=(int)(_focusY-_libraryScroll);
+            s.CenterX=fx+279;s.CenterY=fy+140;s.Zoom=1+.025f*_cardLift[_selected];s.Lift=5*_cardLift[_selected];
             var edge=Color.FromRgb(112,211,224);
             // Keep the moving frame outside the card so its tint cannot hide it.
             s.FillRoundedRect(fx-3,fy-3,564,286,22,edge.WithAlpha(24));
             s.StrokeRoundedRect(fx,fy,558,280,22,4,edge);
+            s.ResetTransform();
         }
-        for(int i=first;i<Math.Min(first+12,games.Length);i++) {
+        int end=Math.Min(first+12,games.Length);
+        // Draw the selected card last so its raised surface stays in front.
+        for(int draw=first;draw<=end;draw++) {
+            int i=draw==end?_selected:draw;
+            if(i<first||i>=end||(draw!=end&&i==_selected))continue;
             int x=76+(i%3)*590,y=250+(i/3)*302-(int)_libraryScroll;
             if(y>=824 || y+280<=240)continue;
             bool selected=i==_selected;
+            s.CenterX=x+273;s.CenterY=y+134;s.Zoom=1+.025f*_cardLift[i];s.Lift=5*_cardLift[i];s.AnimateText=selected;
+            s.FillRoundedRect(x-3,y+10,552,270,20,Color.Black.WithAlpha((byte)(20+40*_cardLift[i])));
             s.FillRoundedRect(x,y+5,546,268,18,Color.Black.WithAlpha(25));
             // A tinted base keeps the wallpaper subdued beneath the frosted sheen.
             s.FillRoundedRect(x,y,546,268,18,selected?Color.FromRgb(37,66,79).WithAlpha(235):Panel.WithAlpha(180));
@@ -320,15 +343,23 @@ internal sealed class Launcher : ProsperoApp
                 Color.FromRgb(130,151,174).WithAlpha(selected?(byte)20:(byte)9));
             s.FillRoundedRect(x+18,y+1,510,1,0,Color.White.WithAlpha(selected?(byte)80:(byte)31));
             DrawCover(s,games[i],x+14,y+24);
+            string format=Text(games[i],"format").ToUpperInvariant();
+            if(format.Length>0) {
+                int badgeWidth=Math.Min(200,s.TextWidth(format,2)+22);
+                s.FillRoundedRect(x+24,y+34,badgeWidth,32,8,TagFormat);
+                s.DrawTextClipped(format,x+35,y+42,2,Color.White,badgeWidth-22);
+            }
             s.DrawTextClipped(Text(games[i],"title"),x+250,y+30,3,Color.White,280);
             MetadataTag(s,x+250,y+66,132,Text(games[i],"titleId"),TagId);
             MetadataTag(s,x+390,y+66,144,"Min FW "+(Text(games[i],"minimumFirmware").Length>0?Text(games[i],"minimumFirmware"):"?"),TagFirmware);
-            MetadataTag(s,x+250,y+108,132,Text(games[i],"format").ToUpperInvariant(),TagFormat);
-            if(Flag(games[i],"backportFiles"))MetadataTag(s,x+390,y+108,144,"Backported",TagBackport);
-            MetadataTag(s,x+250,y+150,132,Size(Number(games[i],"size")),TagSize);
+            MetadataTag(s,x+390,y+108,144,Flag(games[i],"backportFiles")?"Backported":"Not Backported",Flag(games[i],"backportFiles")?TagBackport:TagNeutral);
+            MetadataTag(s,x+250,y+108,132,Size(Number(games[i],"size")),TagSize);
             MetadataTag(s,x+390,y+150,144,RegionLabel(games[i]),TagRegion);
-            MetadataTag(s,x+250,y+192,284,InstallStatus(games[i]),InstalledLocation(games[i]).Length>0?TagInstalled:TagNeutral);
+            bool installed=InstalledLocation(games[i]).Length>0;
+            MetadataTag(s,x+250,y+150,132,installed?"Installed":InstallStatus(games[i]),installed?TagInstalled:TagNeutral);
+            MetadataTag(s,x+250,y+192,284,"Server: "+Text(games[i],"sourceProtocol").ToUpperInvariant()+" · "+Text(games[i],"sourceName"),TagNeutral);
             if(selected) { s.DrawText("× COPY",x+250,y+237,2,Blue); if(InstalledLocation(games[i]).Length>0)s.DrawText("R2 DELETE",x+390,y+237,2,Color.FromRgb(242,105,115)); }
+            s.ResetTransform();s.AnimateText=true;
         }
         s.SetLibraryClip(false);
         // Visible rows take priority; warm only the next two rows, using the same
@@ -341,7 +372,7 @@ internal sealed class Launcher : ProsperoApp
             int offset=(int)((Environment.TickCount64/5)%1540);
             s.FillRoundedRect(76+offset,827,220,4,2,Blue);
         }
-        s.DrawText("□  Refresh     △  Sort     L2  Source     ×  Copy selected game",76,890,2,Muted);
+        s.DrawText("□  Refresh all     △  Sort     L2  Servers     ×  Copy selected game",76,890,2,Muted);
     }
     private void DrawBackdrop(GlCanvas s) {
         if(_fixedBackground!=null)s.BlitScaled(_fixedBackground.AsSurface(),0,0,1920,1080,true,0,1,true);
@@ -471,7 +502,7 @@ internal sealed class Launcher : ProsperoApp
         for(int i=first;i<Math.Min(first+5,sources.Length);i++) {
             int y=271+(i-first)*116;
             var source=sources[i];
-            bool active=Text(source,"id")==_source;
+            bool active=Flag(source,"enabled");
             string name=Text(source,"name"),protocol=Text(source,"protocol")=="ftp"?"FTP":"SMB";
             string path=string.Join("/",new[]{Text(source,"share").Trim('/'),Text(source,"folder").Trim('/')}.Where(v=>v.Length>0));
             ServerAttribute(s,"STATUS",active?"ACTIVE":"NOT ACTIVE",90,y,160,active?Color.FromRgb(91,216,140):Color.FromRgb(242,105,115));
@@ -481,7 +512,7 @@ internal sealed class Launcher : ProsperoApp
             ServerAttribute(s,"PATH",path.Length>0?path:"/",1078,y,744,Blue);
         }
         if(sources.Length==0)s.DrawText("No servers saved. Press □ to add a server.",100,300,3,Muted);
-        s.DrawText("×  Activate / Deactivate     □  Add     △  Edit active     R2  Delete selected",76,890,2,Muted);
+        s.DrawText("×  Activate / Deactivate   □  Add   △  Edit   L2  Duplicate   R2  Delete",76,890,2,Muted);
     }
     private void DrawTransfer(GlCanvas s)
     {
@@ -526,8 +557,9 @@ internal sealed class Launcher : ProsperoApp
         MetadataTag(s,844,332,160,Size(Number(game,"size")),TagSize);
         MetadataTag(s,1014,332,170,"Min FW "+(Text(game,"minimumFirmware").Length>0?Text(game,"minimumFirmware"):"?"),TagFirmware);
         MetadataTag(s,1194,332,150,RegionLabel(game),TagRegion);
-        if(Flag(game,"backportFiles"))MetadataTag(s,1354,332,180,"Backported",TagBackport);
-        MetadataTag(s,674,372,970,InstallStatus(game),InstalledLocation(game).Length>0?TagInstalled:TagNeutral);
+        MetadataTag(s,1354,332,180,Flag(game,"backportFiles")?"Backported":"Not Backported",Flag(game,"backportFiles")?TagBackport:TagNeutral);
+        MetadataTag(s,674,372,470,InstallStatus(game),InstalledLocation(game).Length>0?TagInstalled:TagNeutral);
+        MetadataTag(s,1154,372,490,"Server: "+Text(game,"sourceProtocol").ToUpperInvariant()+" · "+Text(game,"sourceName"),TagNeutral);
         s.DrawText("CHOOSE A DESTINATION",674,410,2,Muted);
         var drives=Array(Get(_data,"storage"));
         _drive=Math.Clamp(_drive,0,Math.Max(0,drives.Length-1));
@@ -548,11 +580,16 @@ internal sealed class Launcher : ProsperoApp
         s.DrawText("×  Start copy",690,855,2,Color.White);
         s.DrawText("○  Back",1430,855,2,Muted);
     }
+    private string _editSourceId="";
     private void EditSettings()
     {
-        var settings=Get(Smb,"settings"); _values=_keys.Select(k=>k=="password"?"":Text(settings,k)).ToArray();
+        var sources=Array(Get(Smb,"sources"));
+        if(sources.Length==0){_actionError="Add a server before editing it.";return;}
+        var settings=sources[Math.Clamp(_sourceRow,0,sources.Length-1)];
+        _editSourceId=Text(settings,"id");
+        _values=_keys.Select(k=>k=="password"?"":Text(settings,k)).ToArray();
         _values[8]=_values[8]=="ftp"?"ftp":"smb";
-        _remember=Flag(Smb,"remember"); _passwordEdited=false; _field=0; _modal="settings";
+        _remember=Flag(settings,"remember"); _passwordEdited=false; _field=0; _modal="settings";
     }
     private void DrawSettings(GlCanvas s)
     {
@@ -570,7 +607,7 @@ internal sealed class Launcher : ProsperoApp
     {
         var fields=new List<(string Name,object Value)>();
         for(int i=0;i<10;i++) if(i!=5 || _passwordEdited) fields.Add((_keys[i],_values[i]));
-        fields.Add(("remember",_remember)); Send("configure",fields.ToArray()); _modal="";
+        fields.Add(("remember",_remember));fields.Add(("sourceId",_editSourceId)); Send("configure",fields.ToArray()); _modal="";
     }
     private void HandleExit(FrameContext c) {
         if(!c.Pressed(ScePadButton.Options)) return;
@@ -609,6 +646,9 @@ internal sealed class Launcher : ProsperoApp
         if(_modal=="deleteSource") {
             if(Press(ScePadButton.Cross)) {Send("deleteSource",("sourceId",_deleteSourceId));_modal="";}return;
         }
+        if(_modal=="duplicateSource") {
+            if(Press(ScePadButton.Cross)){Send("duplicateSource",("sourceId",_deleteSourceId),("confirmed",true));_modal="";}return;
+        }
         if(_modal=="cancel") { if(Press(ScePadButton.Cross)) {Send("cancel");_modal="";} return; }
         if(_modal=="copy") {
             var drives=Array(Get(_data,"storage"));
@@ -639,8 +679,7 @@ internal sealed class Launcher : ProsperoApp
             if(Press(ScePadButton.Square)) RefreshLibrary();
             if(Press(ScePadButton.Triangle)) {_sort=1-_sort;SortGames();_selected=0;}
             if(!Flag(Smb,"busy") && !_refreshPending && Press(ScePadButton.L2)) {
-                var sources=Array(Get(Smb,"sources")); int i=System.Array.FindIndex(sources,x=>Text(x,"id")==_source);
-                if(sources.Length>0) Send("selectSource",("sourceId",Text(sources[(i+sources.Length+-1)%sources.Length],"id")));
+                _tab=1;
             }
             if(Press(ScePadButton.R2)&&games.Length>0 && InstalledLocation(games[_selected]).Length>0){
                 var target=DeleteTarget(games[_selected]);
@@ -653,15 +692,15 @@ internal sealed class Launcher : ProsperoApp
             var sources=Array(Get(Smb,"sources"));
             if(Press(ScePadButton.Up)) _sourceRow=Math.Max(0,_sourceRow-1);
             if(Press(ScePadButton.Down)) _sourceRow=Math.Min(Math.Max(0,sources.Length-1),_sourceRow+1);
-            if(Press(ScePadButton.Cross)&&sources.Length>0) Send(Text(sources[_sourceRow],"id")==_source?"deactivateSource":"selectSource",("sourceId",Text(sources[_sourceRow],"id")));
+            if(Press(ScePadButton.Cross)&&sources.Length>0) Send(Flag(sources[_sourceRow],"enabled")?"deactivateSource":"selectSource",("sourceId",Text(sources[_sourceRow],"id")));
             if(Press(ScePadButton.Square)) Send("addSource");
-            if(Press(ScePadButton.Triangle)) {if(_source.Length>0)EditSettings();else _actionError="Activate a server before editing it.";}
-            if(Press(ScePadButton.R2)&&sources.Length>0) {
+            if(Press(ScePadButton.Triangle)) EditSettings();
+            if((Press(ScePadButton.R2)||Press(ScePadButton.L2))&&sources.Length>0) {
                 if(Flag(Smb,"busy")){_status="Wait for the server operation to finish before removing a source.";return;}
                 var source=sources[Math.Clamp(_sourceRow,0,sources.Length-1)];
                 _deleteSourceId=Text(source,"id");_deleteSourceName=Text(source,"name");
                 if(_deleteSourceName.Length==0)_deleteSourceName=Text(source,"server")+" / "+Text(source,"share");
-                _modal="deleteSource";
+                _modal=Press(ScePadButton.L2)?"duplicateSource":"deleteSource";
             }
         } else {
             if(Press(ScePadButton.Cross)) Send(Text(Get(Smb,"job"),"status")=="copying"?"pause":"resume");

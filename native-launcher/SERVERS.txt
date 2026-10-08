@@ -1,6 +1,8 @@
 Atmosphere servers
 
-Use SERVERS > Square to add a server, then Triangle to edit the active server.
+Use SERVERS > Square to add a server, then Triangle to edit the highlighted server.
+Cross toggles each server independently. Library shows all active servers.
+L2 duplicates the highlighted entry after confirmation; the copy starts inactive.
 Highlight Protocol and press Cross to switch between SMB and FTP.
 Leave Port blank for SMB port 445 or FTP port 21.
 
@@ -16,9 +18,9 @@ Scanning recognizes game folders, exFAT images and FFPFSC files. Local cover
 caching, internal/USB destinations, pause/resume checks and SHA-256 destination
 verification are shared with SMB. Large per-game backgrounds are not extracted.
 
-Example verified on the user's server:
+Example configuration (replace with your own values):
 Protocol: FTP
-Server: 192.168.0.113
+Server: 192.168.1.100
 Port: 21
 Folder: DATA2/ps5
 Username and Password: blank

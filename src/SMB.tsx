@@ -16,6 +16,9 @@ interface Settings {
   destinationFolder: string;
 }
 interface SMBGame {
+  sourceId?: string;
+  sourceName?: string;
+  sourceProtocol?: string;
   id: string;
   title: string;
   titleId?: string;
@@ -42,7 +45,7 @@ interface CopyJob extends SMBGame {
 interface Snapshot {
   installed?: {checking:boolean; complete:boolean; games:{titleId:string;location:string}[]};
   activeSourceId: string;
-  sources: { id: string; name: string; server: string; share: string }[];
+  sources: { id: string; name: string; server: string; share: string; enabled:boolean }[];
   revision: number;
   settings: Partial<Settings>;
   games: SMBGame[];
@@ -194,6 +197,8 @@ export function SMB({
       <div className="smb-source-bar">
         <Select label="Server" value={snapshot?.activeSourceId || ""} disabled={busy} onChange={id => void act({action:"selectSource",sourceId:id})} options={(snapshot?.sources || []).map(s => ({value:s.id,label:s.name || (s.server ? `${s.server} / ${s.share}` : "New source")}))} />
         <button disabled={busy || (snapshot?.sources.length || 0) >= 8} onClick={() => void act({action:"addSource"})}>+ Add source</button>
+        <button disabled={busy || !snapshot?.activeSourceId || (snapshot?.sources.length || 0)>=8} onClick={()=>{if(window.confirm("Duplicate this server's connection settings? The new entry will start inactive."))void act({action:"duplicateSource",sourceId:snapshot?.activeSourceId,confirmed:true});}}>Duplicate server</button>
+        {(snapshot?.sources || []).map(s=><button key={s.id} disabled={busy} onClick={()=>void act({action:s.enabled?"deactivateSource":"selectSource",sourceId:s.id})}>{s.name || s.server}: {s.enabled?"ACTIVE":"NOT ACTIVE"}</button>)}
       </div>
       {editing && (
         <form
@@ -391,6 +396,7 @@ export function SMB({
                   : bytes(g.size)}
               </span>
               <span>{installedStatus(g)}</span>
+              <span>{g.sourceProtocol?.toUpperCase()} · {g.sourceName}</span>
             </span>
           </button>
         ))}
@@ -409,7 +415,7 @@ export function SMB({
             <Select label="Copy location" value={copyToRoot ? "root" : "folder"} onChange={value => setUsbRoot(value === "root")} disabled={busy} options={[{value:"folder",label:`Game folder /${snapshot?.settings.destinationFolder || "homebrew"}`},{value:"root",label:selectedDrive?.external ? "USB root (top level of drive)" : "USB root — select a USB drive first",disabled:!selectedDrive?.external}]} />
             {!selectedDrive?.external && <p className="smb-destination-note">To copy to USB root, choose a USB drive under Copy destination, then choose USB root under Copy location.</p>}
             {!drives.length ? <p className="smb-destination-note">No copy destination available. Storage appears when running on your PS5.</p> : <p className="smb-destination-note">Copy to {selectedDrive?.path}/{copyToRoot ? "" : `${snapshot?.settings.destinationFolder || "homebrew"}/`}{selected.filename}</p>}
-            <button className="primary" disabled={busy || !destination || (!!installedLocation(selected) && duplicateConfirmed!==selected.id)} onClick={async () => { if (await act({action:"copy",gameId:selected.id,storageId:destination,usbRoot:copyToRoot,allowDuplicate:duplicateConfirmed===selected.id})) {setSelected(null);setDuplicateConfirmed("");} }}><Icon name="download" /> Copy game</button>
+            <button className="primary" disabled={busy || !destination || (!!installedLocation(selected) && duplicateConfirmed!==selected.id)} onClick={async () => { if (await act({action:"copy",gameId:selected.id,sourceId:selected.sourceId,storageId:destination,usbRoot:copyToRoot,allowDuplicate:duplicateConfirmed===selected.id})) {setSelected(null);setDuplicateConfirmed("");} }}><Icon name="download" /> Copy game</button>
             {error && <p role="alert">{error}</p>}
             <p className="fine smb-detail-filename">{selected.filename}</p>
           </div>
