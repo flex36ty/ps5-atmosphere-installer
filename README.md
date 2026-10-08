@@ -40,7 +40,7 @@ Internal permission repair also requires etaHEN's ELF loader on port 9021. If `/
 
 ## Installation
 
-These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.08.1.zip` from the [GitHub release](https://github.com/flex36ty/ps5-atmosphere-installer/releases/tag/v2026.10.08.1) or [Gitea release](http://192.168.0.217:3003/flex360/ps5-atmosphere-installer/releases/tag/v2026.10.08.1) (local network). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
+These instructions describe the tested **USB folder installation with ShadowMountPlus**. Download `Atmosphere-PPSA99005-2026.10.08.1.zip` from the [GitHub release](https://github.com/flex36ty/ps5-atmosphere-installer/releases/tag/v2026.10.08.1). This attachment contains the complete install folder, including runtime modules. The automatically generated source ZIP is not a ready-to-run application.
 
 The v2026.10.08.1 prerelease adds WebDAV, startup scanning, removal of the native pairing notification, and a password-keyboard fix. Close Atmosphere before updating and preserve `atmosphere-state`. Replace the complete build: its updated graphics interface needs the matching executable and modules. Build and regression checks passed; the latest modules have been uploaded and verified, while end-to-end WebDAV copying and the password-keyboard fix still await user confirmation on the console. See the changelog for details. The demo and screenshots above show an earlier layout.
 
