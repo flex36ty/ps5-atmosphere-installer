@@ -67,7 +67,7 @@ internal sealed class Launcher : ProsperoApp
         }
     }
     private int _tab, _selected, _sourceRow, _drive, _field, _sort;
-    private bool _ready, _root, _remember, _passwordEdited;
+    private bool _ready, _remember, _passwordEdited;
     private bool _refreshPending, _refreshActive, _startupScanChecked;
     private string _actionError="", _lastRefresh="Not refreshed this session";
     private long _refreshStarted;
@@ -82,9 +82,9 @@ internal sealed class Launcher : ProsperoApp
     private int _deleteSerial;
     private string _backgroundDeleteMessage="",_backgroundDeleteId="";
     private JsonElement DeleteTarget(JsonElement game)=>Array(Get(Get(Smb,"installed"),"deleteTargets")).FirstOrDefault(g=>Text(g,"titleId").Equals(Text(game,"titleId"),StringComparison.OrdinalIgnoreCase));
-    private readonly string[] _keys={"name","server","share","folder","username","password","domain","destinationFolder","protocol","port"};
-    private readonly string[] _labels={"Server name","Server / IP","Share (SMB only)","Folder (from server root)","Username","Password","Domain (SMB only)","Destination folder","Protocol","Port"};
-    private string[] _values=new string[10];
+    private readonly string[] _keys={"name","server","share","folder","username","password","domain","protocol","port"};
+    private readonly string[] _labels={"Server name","Server / IP","Share (SMB only)","Folder (from server root)","Username","Password","Domain (SMB only)","Protocol","Port"};
+    private string[] _values=new string[9];
     private TextInputDialog? _input;
     private readonly Dictionary<string,IDisposable> _covers=new();
     private readonly Dictionary<string,long> _coverUse=new();
@@ -145,7 +145,18 @@ internal sealed class Launcher : ProsperoApp
     }
     private void StartCopy(bool allowDuplicate) {
         var drives=Array(Get(_data,"storage"));if(_drive<0||_drive>=drives.Length)return;
-        Send("copy",("gameId",_copyId),("sourceId",Text(_copyGame,"sourceId")),("storageId",Text(drives[_drive],"id")),("usbRoot",_root&&Flag(drives[_drive],"external")),("allowDuplicate",allowDuplicate));_modal="";_tab=2;
+        var destination=CopyDestination(drives[_drive]);if(destination.Folders.Length==0){_actionError="No ShadowMountPlus copy folders are configured for this drive.";return;}
+        Send("copy",("gameId",_copyId),("sourceId",Text(_copyGame,"sourceId")),("storageId",Text(drives[_drive],"id")),("destinationFolder",destination.Selected),("allowDuplicate",allowDuplicate));_modal="";_tab=2;
+    }
+    private readonly Dictionary<string,string> _copyFolders=new();
+    private (string Root,string[] Folders,string Selected,bool Legacy) CopyDestination(JsonElement drive){
+        var d=Array(Get(Smb,"destinations")).FirstOrDefault(x=>Text(x,"storageId")==Text(drive,"id"));
+        string root=Text(d,"root"),source=Text(_copyGame,"sourceId");
+        var folders=Array(Get(d,"folders")).Where(x=>Text(x,"sourceId")==""||Text(x,"sourceId")==source).Select(x=>Text(x,"folder")).Distinct().ToArray();
+        string selected=_copyFolders.TryGetValue(root,out var saved)?saved:Flag(d,"hasSelection")?Text(d,"selected"):"homebrew";
+        if(!folders.Contains(selected))selected=folders.FirstOrDefault()??"";
+        bool legacy=!Array(Get(d,"folders")).Any(x=>Text(x,"folder")==selected&&Text(x,"sourceId")=="");
+        return (root,folders,selected,legacy);
     }
     private JsonElement[] Games()=>_games;
     private void SortGames() {
@@ -578,8 +589,12 @@ internal sealed class Launcher : ProsperoApp
             s.DrawTextClipped(known?Size(Number(drives[i],"freeBytes"))+" FREE":"FREE SPACE UNKNOWN",1280,y,2,Muted,350);
         }
         if(drives.Length==0)s.DrawText("No writable storage found",688,460,3,Muted);
-        bool usb=drives.Length>0 && Flag(drives[_drive],"external");
-        s.DrawText("□  "+(usb&&_root?"USB ROOT":"CONFIGURED FOLDER"),680,800,2,Blue);
+        if(drives.Length>0){
+            var destination=CopyDestination(drives[_drive]);
+            string path=destination.Root+(destination.Selected.Length>0?"/"+destination.Selected:"");
+            s.DrawText(destination.Legacy?"□  Destination folder  ·  saved custom":"□  Destination folder  ·  cycle",680,775,2,Blue);
+            s.DrawTextClipped(destination.Folders.Length>0?path:"No configured scan folder on this drive",680,807,2,Muted,945);
+        }
         s.FillRoundedRect(666,842,986,48,12,Color.FromRgb(32,73,75));
         s.DrawText("×  Start copy",690,855,2,Color.White);
         s.DrawText("○  Back",1430,855,2,Muted);
@@ -592,7 +607,7 @@ internal sealed class Launcher : ProsperoApp
         var settings=sources[Math.Clamp(_sourceRow,0,sources.Length-1)];
         _editSourceId=Text(settings,"id");
         _values=_keys.Select(k=>k=="password"?"":Text(settings,k)).ToArray();
-        _values[8]=_values[8] is "ftp" or "webdav" or "webdavs"?_values[8]:"smb";
+        _values[7]=_values[7] is "ftp" or "webdav" or "webdavs"?_values[7]:"smb";
         _remember=Flag(settings,"remember"); _passwordEdited=false; _field=0; _modal="settings";
     }
     private void DrawSettings(GlCanvas s)
@@ -600,9 +615,9 @@ internal sealed class Launcher : ProsperoApp
         Box(s,"EDIT SERVER");
         _fieldY=Ease(_fieldY,301+_field*38);
         FocusRow(s,335,(int)_fieldY,1240,40);
-        for(int i=0;i<12;i++) {
+        for(int i=0;i<11;i++) {
             int y=308+i*38;
-            string value=i<10?_labels[i]+": "+(i==5?(_passwordEdited?"(updated)":"(unchanged)"):_values[i]):i==10?"Remember password: "+(_remember?"YES":"NO"):"SAVE SERVER";
+            string value=i<9?_labels[i]+": "+(i==5?(_passwordEdited?"(updated)":"(unchanged)"):_values[i]):i==9?"Remember password: "+(_remember?"YES":"NO"):"SAVE SERVER";
             s.DrawTextClipped(value,355,y,2,i==_field?Color.White:Muted,1190);
         }
         s.DrawText("×  Edit / Select     ○  Back",355,802,2,Blue);
@@ -610,7 +625,7 @@ internal sealed class Launcher : ProsperoApp
     private void SaveSettings()
     {
         var fields=new List<(string Name,object Value)>();
-        for(int i=0;i<10;i++) if(i!=5 || _passwordEdited) fields.Add((_keys[i],_values[i]));
+        for(int i=0;i<9;i++) if(i!=5 || _passwordEdited) fields.Add((_keys[i],_values[i]));
         fields.Add(("remember",_remember));fields.Add(("sourceId",_editSourceId)); Send("configure",fields.ToArray()); _modal="";
     }
     private void HandleExit(FrameContext c) {
@@ -658,15 +673,15 @@ internal sealed class Launcher : ProsperoApp
             var drives=Array(Get(_data,"storage"));
             if(Press(ScePadButton.Up)) _drive=Math.Max(0,_drive-1);
             if(Press(ScePadButton.Down)) _drive=Math.Min(Math.Max(0,drives.Length-1),_drive+1);
-            if(Press(ScePadButton.Square)) _root=!_root;
+            if(Press(ScePadButton.Square)&&drives.Length>0){var d=CopyDestination(drives[_drive]);if(d.Folders.Length>0)_copyFolders[d.Root]=d.Folders[(System.Array.IndexOf(d.Folders,d.Selected)+1)%d.Folders.Length];}
             if(Press(ScePadButton.Cross) && drives.Length>0) {if(InstalledLocation(_copyGame).Length>0)_modal="duplicate";else StartCopy(false);} return;
         }
         if(_modal=="settings") {
             if(Press(ScePadButton.Up)) _field=Math.Max(0,_field-1);
-            if(Press(ScePadButton.Down)) _field=Math.Min(11,_field+1);
+            if(Press(ScePadButton.Down)) _field=Math.Min(10,_field+1);
             if(Press(ScePadButton.Cross)) {
-                if(_field==11) SaveSettings(); else if(_field==10) _remember=!_remember;
-                else if(_field==8){_values[8]=_values[8] switch {"smb"=>"ftp","ftp"=>"webdav","webdav"=>"webdavs",_=>"smb"};_values[9]="";}
+                if(_field==10) SaveSettings(); else if(_field==9) _remember=!_remember;
+                else if(_field==7){_values[7]=_values[7] switch {"smb"=>"ftp","ftp"=>"webdav","webdav"=>"webdavs",_=>"smb"};_values[8]="";}
                 else try {_actionError="";_input=TextInputDialog.Open(_labels[_field],maxLength:240,type:_field==5?ImeType.BasicLatin:ImeType.Default,initialText:_values[_field],options:_field==5?ImeOption.Password:ImeOption.None);}catch(Exception e){_actionError=_status=e.Message;}
             } return;
         }
@@ -691,7 +706,7 @@ internal sealed class Launcher : ProsperoApp
                 else if(target.ValueKind!=JsonValueKind.Object)_actionError="This installation cannot be deleted through ShadowMount. Refresh and try again.";
                 else {_deleteGame=target;_deleteTitle=Text(games[_selected],"title");_modal="deleteGame";}
             }
-            if(Press(ScePadButton.Cross)&&games.Length>0) {_copyGame=games[_selected];_copyId=Text(_copyGame,"id");_copyTitle=Text(games[_selected],"title");_root=false;_drive=0;_modal="copy";}
+            if(Press(ScePadButton.Cross)&&games.Length>0) {_copyGame=games[_selected];_copyId=Text(_copyGame,"id");_copyTitle=Text(games[_selected],"title");_drive=0;_modal="copy";}
         } else if(_tab==1) {
             var sources=Array(Get(Smb,"sources"));
             if(Press(ScePadButton.Up)) _sourceRow=Math.Max(0,_sourceRow-1);

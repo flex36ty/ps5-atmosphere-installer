@@ -20,7 +20,7 @@ The current application uses a native OpenGL interface and an in-process C backe
 - Smooth scrolling, animated card lift, square cover cards, and a frosted background. Overflowing text scrolls left with two-second pauses at the end and after resetting.
 - Solid format badges on posters, a dedicated server row, and compact Installed status on cards; the copy popup retains the installed location.
 - Sorting by title or date added.
-- Copy to internal storage or USB, including a USB-root destination option.
+- Choose a destination folder in the copy popup with Square. Options follow readable ShadowMountPlus `scanpath` settings, or its defaults (`homebrew`, `etaHEN/games`, and external-drive root). The full path is shown and the last copy destination is remembered per drive. Saved custom server destinations remain available for compatibility; new server settings no longer ask for a local folder.
 - Automatic repair of permission-denied errors on the default internal destination and staging folders, using a bundled etaHEN helper.
 - Transfer progress, speed, pause/resume, and SHA-256 verification.
 - Installed-game detection by metadata title ID, with installed-source deletion through ShadowMountPlus.

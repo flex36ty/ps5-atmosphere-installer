@@ -5,6 +5,7 @@
 #include "image_metadata.h"
 #include "partial_file.h"
 #include "remote_source.h"
+#include "copy_destinations.h"
 #include <errno.h>
 #include <ctype.h>
 #include <fcntl.h>
@@ -38,6 +39,14 @@ static bool started, stopping, busy, pause_requested, cancel_requested;
 static int pending; /* 1: scan, 2: copy */
 static cJSON *settings, *games, *job;
 static cJSON *sources;
+static cJSON *scan_paths,*destination_preferences;
+static void load_scan_paths(void){
+    unsigned char *data=NULL;size_t length;
+    cJSON_Delete(scan_paths);scan_paths=cJSON_CreateArray();
+    if(!read_regular_file("/data/shadowmount/config.ini",256*1024,&data,&length)){
+        cJSON_Delete(scan_paths);scan_paths=destination_scanpaths((char*)data);free(data);
+    }
+}
 static char active_source[24] = "default";
 static char password[256], message[256];
 static bool remember;
@@ -79,6 +88,15 @@ static void set_text(cJSON *o, const char *key, const char *s) {
 static void set_number(cJSON *o, const char *key, double value) {
     cJSON_DeleteItemFromObjectCaseSensitive(o, key);
     cJSON_AddNumberToObject(o, key, value);
+}
+static cJSON *drive_destinations(const Storage *drive){
+    cJSON *options=destination_folders(scan_paths,drive->root,drive->external,relative),*p;
+    cJSON_ArrayForEach(p,sources){
+        const cJSON *cfg=!strcmp(json_text(p,"id"),active_source)?settings:cJSON_GetObjectItemCaseSensitive(p,"settings");
+        const char *folder=json_text(cfg,"destinationFolder");
+        if(*folder&&relative(folder))destination_add(options,folder,json_text(p,"id"));
+    }
+    return options;
 }
 static void set_identity(cJSON *o, const char *key, uint64_t value) {
     char text[32]; snprintf(text, sizeof text, "%llu", (unsigned long long)value); set_text(o, key, text);
@@ -141,6 +159,7 @@ static int save_locked(void) {
     cJSON *cfg = cJSON_Duplicate(settings, true), *list = cJSON_Duplicate(games, true);
     if (!o || !cfg || !list) { cJSON_Delete(o); cJSON_Delete(cfg); cJSON_Delete(list); return -1; }
     cJSON_AddItemToObject(o, "settings", cfg);
+    cJSON_AddItemToObject(o,"destinationPreferences",cJSON_Duplicate(destination_preferences,true));
     cJSON_AddItemToObject(o, "games", list);
     if (job) cJSON_AddItemToObject(o, "job", cJSON_Duplicate(job, true));
     cJSON_AddBoolToObject(o, "remember", remember);
@@ -931,6 +950,15 @@ static void *worker(void *unused) {
 cJSON *smb_snapshot(bool include_games) {
     pthread_mutex_lock(&lock);
     cJSON *o = cJSON_CreateObject();
+    cJSON *destinations=cJSON_AddArrayToObject(o,"destinations");
+    Storage targets[ATMOSPHERE_MAX_STORAGE];size_t target_count=storage_list(targets);
+    for(size_t i=0;i<target_count;i++){
+        cJSON *d=cJSON_CreateObject();cJSON_AddStringToObject(d,"storageId",targets[i].id);
+        cJSON_AddStringToObject(d,"root",targets[i].root);
+        cJSON_AddStringToObject(d,"selected",json_text(destination_preferences,targets[i].root));
+        cJSON_AddBoolToObject(d,"hasSelection",cJSON_IsString(cJSON_GetObjectItemCaseSensitive(destination_preferences,targets[i].root)));
+        cJSON_AddItemToObject(d,"folders",drive_destinations(&targets[i]));cJSON_AddItemToArray(destinations,d);
+    }
     cJSON *list = cJSON_CreateArray(), *p;
     cJSON_AddItemToObject(o,"installed",installed_snapshot());
     cJSON_ArrayForEach(p, sources) {
@@ -1080,8 +1108,12 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
             code=400;copy_text(error,cap,"Choose SMB, FTP or WebDAV and a port from 1 to 65535.");goto end;
         }
         const char *folder = json_text(input, "folder");
-        const char *destination = json_text(input, "destinationFolder");
-        if (!*destination) destination = "homebrew";
+        char destination[SMB_PATH];copy_text(destination,sizeof destination,json_text(input,"destinationFolder"));
+        if(!*destination){
+            const char *editing=json_text(input,"sourceId");const cJSON *profile=source_by_id(editing);
+            const cJSON *cfg=*editing&&strcmp(editing,active_source)?cJSON_GetObjectItemCaseSensitive(profile,"settings"):settings;
+            copy_text(destination,sizeof destination,*json_text(cfg,"destinationFolder")?json_text(cfg,"destinationFolder"):"homebrew");
+        }
         if (!*server || strlen(server) > 253 || strpbrk(server, "/\\@?# \t\r\n") ||
             (!ftp && !dav && !component(share)) || !relative(folder) || !relative(destination) || strlen(destination) > 240 ||
             !strncmp(destination, ".atmosphere-smb-staging", sizeof ".atmosphere-smb-staging"-1) || strlen(json_text(input, "username")) > 255 ||
@@ -1124,7 +1156,7 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
         if(*id){sync_source();cJSON *p=source_by_id(id);if(!p||!source_enabled(p)){code=409;copy_text(error,cap,"Activate the game's server first.");goto end;}load_source(p);}
     }
     if (strcmp(action,"scan") && !*json_text(settings, "server")) { code = 400; copy_text(error, cap, "Configure a server first."); goto end; }
-    if (!strcmp(action, "scan")) { installed_refresh(json_text(settings,"destinationFolder")); pending = 1; busy = true; }
+    if (!strcmp(action, "scan")) { load_scan_paths();installed_refresh(json_text(settings,"destinationFolder")); pending = 1; busy = true; }
     else if (!strcmp(action, "copy") || !strcmp(action, "resume")) {
         bool resume = !strcmp(action, "resume");
         if (resume && (!job || !strcmp(json_text(job, "status"), "complete") ||
@@ -1150,7 +1182,18 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
             Storage drives[ATMOSPHERE_MAX_STORAGE], *drive = NULL; size_t count = storage_list(drives);
             for (size_t i = 0; i < count; i++) if (!strcmp(drives[i].id, json_text(input, "storageId"))) drive = &drives[i];
             bool usb_root = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(input, "usbRoot"));
+            const cJSON *requested=cJSON_GetObjectItemCaseSensitive(input,"destinationFolder");
+            const char *folder=cJSON_IsString(requested)?requested->valuestring:usb_root?"":json_text(settings,"destinationFolder");
+            if(!cJSON_IsString(requested)&&!usb_root&&!*folder)folder="homebrew";
+            bool allowed=!cJSON_IsString(requested);
+            if(drive&&cJSON_IsString(requested)){
+                cJSON *options=drive_destinations(drive),*option;
+                cJSON_ArrayForEach(option,options)if(!strcmp(json_text(option,"folder"),folder)&&
+                    (!*json_text(option,"sourceId")||!strcmp(json_text(option,"sourceId"),active_source)))allowed=true;
+                cJSON_Delete(options);usb_root=!*folder;
+            }
             if (!g || !drive) { code = 400; copy_text(error, cap, "Choose a scanned game and connected destination."); }
+            else if(!allowed||!relative(folder)){code=400;copy_text(error,cap,"Choose a listed destination folder for this drive.");}
             else if(!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(input,"allowDuplicate")) && installed_match(json_text(g,"titleId"))) {
                 code=409;copy_text(error,cap,"This title ID is already installed. Confirm Copy anyway to create another copy.");
             }
@@ -1161,7 +1204,7 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
                 set_text(next, "server", json_text(settings, "server")); set_text(next, "share", json_text(settings, "share"));
                 set_text(next,"protocol",json_text(settings,"protocol"));set_text(next,"port",json_text(settings,"port"));
                 set_text(next, "root", drive->root); set_text(next, "storageId", drive->id);
-                set_text(next, "destinationFolder", usb_root ? "" : json_text(settings, "destinationFolder"));
+                set_text(next, "destinationFolder", folder);
                 cJSON_AddBoolToObject(next, "usbRoot", usb_root);
                 set_identity(next, "device", (uint64_t)drive->device); set_identity(next, "inode", (uint64_t)drive->inode);
                 cJSON_DeleteItemFromObjectCaseSensitive(next, "cover");
@@ -1169,8 +1212,13 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
         }
         if (next) {
             cJSON *old = job; job = next; transfer_speed = 0; set_text(job, "phase", "Preparing"); set_text(job, "status", "copying"); set_text(job, "error", ""); set_number(job, "received", 0);
-            if (save_locked()) { cJSON_Delete(job); job = old; code = 503; copy_text(error, cap, "Cannot save the copy job."); }
-            else { cJSON_Delete(old); pending = 2; busy = true; }
+            cJSON *old_preferences=cJSON_Duplicate(destination_preferences,true);
+            if(!resume)set_text(destination_preferences,json_text(job,"root"),json_text(job,"destinationFolder"));
+            if (save_locked()) { cJSON_Delete(job); job = old;cJSON_Delete(destination_preferences);destination_preferences=old_preferences;old_preferences=NULL;code = 503; copy_text(error, cap, "Cannot save the copy job."); }
+            else { cJSON_Delete(old); pending = 2; busy = true;
+                installed_refresh(json_text(job,"destinationFolder"));
+            }
+            cJSON_Delete(old_preferences);
         }
         if (!busy) { pthread_mutex_lock(&atmosphere.mutex); atmosphere.smb_storage_busy = false; pthread_mutex_unlock(&atmosphere.mutex); }
     } else { code = 400; copy_text(error, cap, "Unknown server action."); }
@@ -1182,10 +1230,13 @@ end:
 int smb_start(void) {
     bool saved_empty_sources = false;
     settings = cJSON_CreateObject(); games = cJSON_CreateArray(); sources = cJSON_CreateArray();
+    destination_preferences=cJSON_CreateObject();load_scan_paths();
     char path[1024]; snprintf(path, sizeof path, "%s/%s", atmosphere.state_dir, state_name);
     unsigned char *data = NULL; size_t length;
     if (!read_regular_file(path, 256 * 1024 * 1024, &data, &length)) {
         cJSON *saved = cJSON_Parse((char *)data); free(data);
+        cJSON *prefs=cJSON_GetObjectItemCaseSensitive(saved,"destinationPreferences");
+        if(cJSON_IsObject(prefs)){cJSON_Delete(destination_preferences);destination_preferences=cJSON_Duplicate(prefs,true);}
         cJSON *cfg = cJSON_GetObjectItemCaseSensitive(saved, "settings"), *list = cJSON_GetObjectItemCaseSensitive(saved, "games");
         if (cJSON_IsObject(cfg)) {
             cJSON_Delete(settings); settings = cJSON_Duplicate(cfg, true);
@@ -1219,6 +1270,8 @@ int smb_start(void) {
     if (!cJSON_GetArraySize(sources) && !saved_empty_sources) cJSON_AddItemToArray(sources, capture_source());
     cJSON *migration;cJSON_ArrayForEach(migration,sources)if(!cJSON_IsBool(cJSON_GetObjectItemCaseSensitive(migration,"enabled")))cJSON_AddBoolToObject(migration,"enabled",!strcmp(json_text(migration,"id"),active_source));
     installed_start();
+    installed_refresh("etaHEN/games");
+    cJSON *pref;cJSON_ArrayForEach(pref,destination_preferences)if(cJSON_IsString(pref)&&relative(pref->valuestring))installed_refresh(pref->valuestring);
     cJSON *profile;cJSON_ArrayForEach(profile,sources)installed_refresh(json_text(cJSON_GetObjectItemCaseSensitive(profile,"settings"),"destinationFolder"));
     installed_refresh(json_text(settings,"destinationFolder"));
     pthread_attr_t attr;

@@ -134,8 +134,15 @@ internal static class Preview {
    Console.WriteLine("PASS: 4K BC7 DDS validation, compressed GPU upload and rendering");
   }
   Directory.CreateDirectory("renders");
+  using var destinationsDoc=JsonDocument.Parse(doc.RootElement.GetRawText().Replace("\"smb\":{","\"smb\":{\"destinations\":[{\"storageId\":\"usb0\",\"root\":\"/mnt/usb0\",\"hasSelection\":true,\"selected\":\"etaHEN/games\",\"folders\":[{\"folder\":\"homebrew\",\"sourceId\":\"\"},{\"folder\":\"etaHEN/games\",\"sourceId\":\"\"},{\"folder\":\"\",\"sourceId\":\"\"},{\"folder\":\"other-private\",\"sourceId\":\"s2\"}]}],"));
+  Call(app,"UpdateData",destinationsDoc.RootElement.Clone());
+  Set(app,"_copyGame",destinationsDoc.RootElement.GetProperty("smb").GetProperty("games")[0].Clone());
+  var destination=((string Root,string[] Folders,string Selected,bool Legacy))Call(app,"CopyDestination",destinationsDoc.RootElement.GetProperty("storage")[0])!;
+  if(destination.Selected!="etaHEN/games"||destination.Folders.Length!=3||destination.Legacy)throw new Exception("Destination preference or source isolation failed");
+  if(((string[])typeof(Launcher).GetField("_keys",Hidden)!.GetValue(app)!).Contains("destinationFolder"))throw new Exception("Destination remains in server editor");
+  Console.WriteLine("PASS: destination selector restores drive preference and excludes another server's legacy folder");
   foreach(var view in new[]{"library","refreshing","empty","sources","transfers","copy","deleteGame","duplicateSource","settings"}) {
-   Call(app,"UpdateData",doc.RootElement.Clone());
+   Call(app,"UpdateData",destinationsDoc.RootElement.Clone());
    Set(app,"_refreshActive",view=="refreshing");Set(app,"_refreshStarted",Environment.TickCount64-8000);
    if(view=="empty")Set(app,"_games",Array.Empty<JsonElement>());
    Set(app,"_tab",view=="sources"?1:view=="transfers"?2:0);Set(app,"_modal",view=="copy"?"copy":view=="deleteGame"?"deleteGame":view=="duplicateSource"?"duplicateSource":"");

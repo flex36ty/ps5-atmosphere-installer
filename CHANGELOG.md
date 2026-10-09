@@ -1,5 +1,12 @@
 # Changelog
 
+## v2026.10.09 — 2026-10-09
+
+- Move the native app's destination folder choice from Server settings to the copy popup. Square cycles through ShadowMountPlus scan folders on the selected storage device and shows the full path.
+- Read custom `scanpath` entries from `/data/shadowmount/config.ini` on startup and scans; use ShadowMountPlus defaults when none are available. Internal storage root and ShadowMount-managed mounts are not copy targets.
+- Remember the last accepted copy folder per drive. Preserve saved custom server folders, legacy API requests and paused jobs; reject new destination choices outside the listed folders.
+- Destination parsing and native UI tests passed, including saved drive preferences and source-specific legacy folders. Rendered popup and settings screens were checked. Both signed modules were uploaded to the test PS5 and verified by SHA-256 readback; on-console selection/copy confirmation is pending.
+
 ## v2026.10.08.1 — 2026-10-08
 
 - Added WebDAV HTTP/HTTPS sources, Basic authentication, bounded XML directory parsing, metadata and cover reads, recursive folder copying, and verified byte-range transfers through the existing copy/resume workflow.
