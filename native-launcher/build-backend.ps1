@@ -9,7 +9,12 @@ function Invoke-Tool {
 }
 $link = @('link','--obj',"$obj/backend-native.o",'--kind','prx','--publish-name','atmosphere_backend','--export-library','atmosphere_backend','--export','atmosphere_backend_run','--export','atmosphere_request_stop','--export','atmosphere_backend_stage','--export','atmosphere_native_request','--export','atmosphere_native_free','--out',"$obj/atmosphere_backend.prx")
 foreach ($lib in @('libSceLibcInternal','libkernel','libSceNet')) {
-    Invoke-Tool stub --lib $lib --module-version 1 --names "$obj/$lib.txt" --out "$obj/$lib.a"
+    $names = "$obj/$lib.txt"
+    if ($lib -eq 'libkernel') {
+        $names = "$obj/kernel-directory-imports.txt"
+        @((Get-Content "$obj/libkernel.txt"); 'sceKernelGetdents'; 'sceKernelGetdirentries') | Sort-Object -Unique | Set-Content $names
+    }
+    Invoke-Tool stub --lib $lib --module-version 1 --names $names --out "$obj/$lib.a"
     $link += @('--stub',"$obj/$lib.a")
 }
 $link += @('--module-start','atmosphere_module_start')

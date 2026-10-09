@@ -16,7 +16,7 @@ namespace Atmosphere;
 internal sealed class Launcher : ProsperoApp
 {
     private readonly GlCanvas _canvas=new();
-    private float _focusX=70,_focusY=244,_tabX=862;
+    private float _focusX=70,_focusY=244,_tabX=748;
     private float _libraryScroll;
     private JpegImage? _fixedBackground;
     private double _frameDelta;
@@ -53,6 +53,8 @@ internal sealed class Launcher : ProsperoApp
     private readonly NativeBackend _backend=new();
     private JsonElement _data;
     private JsonElement[] _games=System.Array.Empty<JsonElement>();
+    private JsonElement[] _installedGames=System.Array.Empty<JsonElement>();
+    private readonly int[] _librarySelections=new int[2];
     private readonly Dictionary<string,(long RetryAt,int Attempts)> _coverFailures=new();
     private string _status="Starting Atmosphere", _source="", _modal="";
     private string _visibleModal="";
@@ -146,7 +148,38 @@ internal sealed class Launcher : ProsperoApp
     private void StartCopy(bool allowDuplicate) {
         var drives=Array(Get(_data,"storage"));if(_drive<0||_drive>=drives.Length)return;
         var destination=CopyDestination(drives[_drive]);if(destination.Folders.Length==0){_actionError="No ShadowMountPlus copy folders are configured for this drive.";return;}
-        Send("copy",("gameId",_copyId),("sourceId",Text(_copyGame,"sourceId")),("storageId",Text(drives[_drive],"id")),("destinationFolder",destination.Selected),("allowDuplicate",allowDuplicate));_modal="";_tab=2;
+        Send("copy",("gameId",_copyId),("sourceId",Text(_copyGame,"sourceId")),("storageId",Text(drives[_drive],"id")),("destinationFolder",destination.Selected),("allowDuplicate",allowDuplicate));_modal="";SelectTab(3);
+    }
+    private int _exportServer,_exportLocation;
+    private bool _exportSkipVerification;
+    private float _exportY=442;
+    private JsonElement[] ExportServers()=>Array(Get(Smb,"sources")).Where(x=>Text(x,"protocol") is "" or "smb" or "ftp").ToArray();
+    private JsonElement[] ExportLocations()=>Array(Get(Get(Smb,"installed"),"games")).Where(x=>Text(x,"titleId")==Text(_copyGame,"titleId")&&Flag(x,"canExport")).ToArray();
+    private bool CanExport(JsonElement game)=>Array(Get(Get(Smb,"installed"),"games")).Any(x=>Text(x,"titleId")==Text(game,"titleId")&&Flag(x,"canExport"));
+    private void OpenExport(JsonElement game){
+        if(Flag(Smb,"busy")){_actionError="Wait for the current transfer or scan to finish.";return;}
+        _copyGame=game;_copyTitle=Text(game,"title");_exportServer=_exportLocation=0;
+        _exportSkipVerification=true;
+        if(ExportLocations().Length==0){_actionError=Flag(Get(Smb,"installed"),"sourceChecking")?"Still locating local game files. Try again when the installed scan finishes.":"The installed title's source could not be read. Refresh Installed Games; disconnected drives or registered packages cannot be copied.";return;}
+        _modal="export";
+    }
+    private void DrawExport(GlCanvas s){
+        Box(s,"COPY INSTALLED GAME TO SERVER");
+        s.DrawTextClipped(_copyTitle,355,337,3,Color.White,1190);
+        var locations=ExportLocations();var servers=ExportServers();
+        _exportLocation=Math.Clamp(_exportLocation,0,Math.Max(0,locations.Length-1));
+        _exportServer=Math.Clamp(_exportServer,0,Math.Max(0,servers.Length-1));
+        s.DrawTextClipped(locations.Length>0?"□  From: "+Text(locations[_exportLocation],"location"):"Local source unavailable",355,394,2,Blue,1190);
+        _exportY=Ease(_exportY,442+_exportServer*32);if(servers.Length>0)FocusRow(s,335,(int)_exportY,1240,32);
+        for(int i=0;i<servers.Length;i++){
+            int y=447+i*32;
+            s.DrawTextClipped(Text(servers[i],"name")+"  ·  "+(Text(servers[i],"protocol")=="ftp"?"FTP":"SMB")+"  ·  /"+Text(servers[i],"folder"),355,y,2,i==_exportServer?Color.White:Muted,1190);
+        }
+        if(servers.Length==0)s.DrawText("Add an SMB or FTP server in Servers first.",355,460,2,Muted);
+        s.DrawText(_exportSkipVerification?"△  Verify copy: OFF - file size only":"△  Verify copy: ON - full SHA-256 readback",355,690,2,Blue);
+        s.DrawText(_exportSkipVerification?"Faster finish; file contents will not be verified.":"Reads the uploaded files back to check their contents.",355,724,2,Muted);
+        s.DrawText("Local files are kept. Interrupted copies stay hidden on the server.",355,758,2,Muted);
+        s.DrawText("×  Confirm copy     ○  Back",355,802,2,Blue);
     }
     private readonly Dictionary<string,string> _copyFolders=new();
     private (string Root,string[] Folders,string Selected,bool Legacy) CopyDestination(JsonElement drive){
@@ -158,15 +191,22 @@ internal sealed class Launcher : ProsperoApp
         bool legacy=!Array(Get(d,"folders")).Any(x=>Text(x,"folder")==selected&&Text(x,"sourceId")=="");
         return (root,folders,selected,legacy);
     }
-    private JsonElement[] Games()=>_games;
+    private JsonElement[] Games()=>_tab==1?_installedGames:_games;
+    private void SelectTab(int tab){
+        if(_tab<2)_librarySelections[_tab]=_selected;
+        _tab=tab;
+        if(_tab<2){_selected=Math.Clamp(_librarySelections[_tab],0,Math.Max(0,Games().Length-1));_libraryScroll=Math.Max(0,_selected/3-1)*302;_focusX=70+(_selected%3)*590;_focusY=244+(_selected/3)*302;}
+    }
     private void SortGames() {
         var games=_games;
         _games=_sort==0?games.OrderBy(x=>Text(x,"title"),StringComparer.OrdinalIgnoreCase).ToArray():games.OrderByDescending(x=>Number(x,"addedAt")).ToArray();
+        _installedGames=_sort==0?_installedGames.OrderBy(x=>Text(x,"title"),StringComparer.OrdinalIgnoreCase).ToArray():_installedGames.OrderByDescending(x=>Number(x,"addedAt")).ToArray();
     }
     private void UpdateData(JsonElement data)
     {
-        string selectedPath=_games.Length>0?Text(_games[Math.Clamp(_selected,0,_games.Length-1)],"path"):"";
-        string selectedSource=_games.Length>0?Text(_games[Math.Clamp(_selected,0,_games.Length-1)],"sourceId"):"";
+        var selectedGames=Games();
+        string selectedPath=selectedGames.Length>0?Text(selectedGames[Math.Clamp(_selected,0,selectedGames.Length-1)],"path"):"";
+        string selectedSource=selectedGames.Length>0?Text(selectedGames[Math.Clamp(_selected,0,selectedGames.Length-1)],"sourceId"):"";
         _data=data; _ready=true;
         var background=Get(data,"deleteResult");
         string backgroundId=Text(background,"requestId")+Text(background,"state");
@@ -180,12 +220,13 @@ internal sealed class Launcher : ProsperoApp
         if(changed) _source=source;
         if(Get(Smb,"games").ValueKind==JsonValueKind.Array) {
             var incoming=Array(Get(Smb,"games"));
+            var installed=Get(Smb,"installedGames").ValueKind==JsonValueKind.Array?Array(Get(Smb,"installedGames")):_installedGames;
             // Transfer-progress snapshots repeat the library. Preserve its textures.
             var previousCovers=new Dictionary<string,string>();
-            foreach(var game in _games)previousCovers[Text(game,"id")]=Text(game,"cover");
-            bool coversChanged=incoming.Length!=_games.Length || incoming.Any(g=>!previousCovers.TryGetValue(Text(g,"id"),out string? cover) || cover!=Text(g,"cover"));
-            _games=incoming; SortGames(); if(coversChanged)ClearCovers();
-            int retained=System.Array.FindIndex(_games,g=>Text(g,"path")==selectedPath&&Text(g,"sourceId")==selectedSource);
+            foreach(var game in _games.Concat(_installedGames))previousCovers[Text(game,"id")]=Text(game,"cover");
+            bool coversChanged=incoming.Length+installed.Length!=_games.Length+_installedGames.Length || incoming.Concat(installed).Any(g=>!previousCovers.TryGetValue(Text(g,"id"),out string? cover) || cover!=Text(g,"cover"));
+            _games=incoming;_installedGames=installed; SortGames(); if(coversChanged)ClearCovers();
+            int retained=System.Array.FindIndex(Games(),g=>Text(g,"path")==selectedPath&&Text(g,"sourceId")==selectedSource);
             if(retained>=0)_selected=retained;
         }
         string error=Text(data,"error");
@@ -218,8 +259,9 @@ internal sealed class Launcher : ProsperoApp
     private void Send(string action, params (string Name,object Value)[] fields) { _backgroundDeleteMessage="";if(action!="deleteInstalled")_deleteRequest="";_actionError="";_backend.Enqueue(NativeBackend.Command(action,fields)); _status="Working..."; }
     private void RefreshLibrary() {
         if(_refreshPending || _refreshActive || Flag(Smb,"busy")) return;
-        if(Array(Get(Smb,"sources")).Length==0){_tab=1;_status="Press □ to add a server.";return;}
-        if(!Array(Get(Smb,"sources")).Any(x=>Flag(x,"enabled")&&Text(x,"server").Length>0)){_tab=1;_status="Configure and activate a server to refresh.";return;}
+        if(_tab==1){Send("refreshInstalled");_status="Refreshing installed games...";return;}
+        if(Array(Get(Smb,"sources")).Length==0){SelectTab(2);_status="Press □ to add a server.";return;}
+        if(!Array(Get(Smb,"sources")).Any(x=>Flag(x,"enabled")&&Text(x,"server").Length>0)){SelectTab(2);_status="Configure and activate a server to refresh.";return;}
         _refreshPending=true;_refreshStarted=Environment.TickCount64;Send("scan");_status="Refresh requested...";
     }
     protected override void OnFrame(FrameContext context)
@@ -236,11 +278,11 @@ internal sealed class Launcher : ProsperoApp
         s.FillVerticalGradient(0,0,1920,240,Color.FromRgb(28,48,83).WithAlpha(200),Ink.WithAlpha(90));
         s.DrawText("ATMOSPHERE",76,54,5,Color.White);
         s.DrawText("YOUR PERSONAL GAME LIBRARY",78,110,2,Muted);
-        string[] tabs={"LIBRARY","SERVERS","TRANSFERS"};
-        _tabX+=(862+_tab*310-_tabX)*(float)(1-Math.Exp(-18*_frameDelta));
-        s.FillRoundedRect((int)_tabX,62,230,52,12,Panel);
-        for(int i=0;i<3;i++) {
-            int x=862+i*310+(230-s.TextWidth(tabs[i],2))/2;
+        string[] tabs={"LIBRARY","INSTALLED GAMES","SERVERS","TRANSFERS"};
+        _tabX+=(748+_tab*272-_tabX)*(float)(1-Math.Exp(-18*_frameDelta));
+        s.FillRoundedRect((int)_tabX,62,250,52,12,Panel);
+        for(int i=0;i<4;i++) {
+            int x=748+i*272+(250-s.TextWidth(tabs[i],2))/2;
             s.DrawText(tabs[i],x,79,2,_tab==i?Blue:Muted);
         }
         s.FillRoundedRect(76,925,1760,55,12,Panel);
@@ -259,10 +301,11 @@ internal sealed class Launcher : ProsperoApp
             return;
         }
         if(!_ready) { s.DrawTextCentered("Loading the native library",420,4,Color.White); HandleExit(context); return; }
-        if(_tab==0) DrawLibrary(s); else if(_tab==1) DrawSources(s); else DrawTransfer(s);
+        if(_tab<2) DrawLibrary(s); else if(_tab==2) DrawSources(s); else DrawTransfer(s);
         AnimateModal();
         s.Opacity=_modalOpacity*_modalOpacity*(3-2*_modalOpacity);
         if(_visibleModal=="copy") DrawCopy(s);
+        else if(_visibleModal=="export") DrawExport(s);
         else if(_visibleModal=="settings") DrawSettings(s);
         else if(_visibleModal=="duplicateSource") {
             Box(s,"DUPLICATE SERVER?");
@@ -309,15 +352,15 @@ internal sealed class Launcher : ProsperoApp
     private void DrawLibrary(GlCanvas s)
     {
         var games=Games(); var cfg=Get(Smb,"settings");
-        bool refreshing=_refreshPending||_refreshActive;
-        s.DrawTextClipped("All active servers · "+Array(Get(Smb,"sources")).Count(x=>Flag(x,"enabled")),76,178,3,Color.White,700);
+        bool refreshing=_tab==1?Flag(Get(Smb,"installed"),"sourceChecking"):_refreshPending||_refreshActive;
+        s.DrawTextClipped(_tab==1?"Installed Games":"All active servers",76,178,3,Color.White,700);
         s.DrawText($"{games.Length} GAMES  /  {(_sort==0?"A - Z":"NEWEST FIRST")}",830,184,2,Muted);
         s.FillRoundedRect(1370,158,466,62,16,refreshing?Panel:Color.FromRgb(32,73,75));
         s.DrawText(refreshing?"REFRESH IN PROGRESS":Flag(Smb,"busy")?"TRANSFER ACTIVE":"□  REFRESH LIBRARY",1396,180,2,Blue);
         if(games.Length==0) {
             s.FillRoundedRect(370,310,1180,380,24,Panel);
-            s.DrawTextCentered(refreshing?"Finding your games":"Your library starts here",390,4,Color.White);
-            s.DrawTextCentered(refreshing?"Reading your server. Games will appear when the scan finishes.":"Set up a server, then press □ to refresh.",474,2,Muted);
+            s.DrawTextCentered(refreshing?"Finding your games":_tab==1?"No installed games found":"Your library starts here",390,4,Color.White);
+            s.DrawTextCentered(_tab==1?"Scanning internal storage and connected drives.":refreshing?"Reading your servers. Games will appear shortly.":"Add a server, then press □ to refresh.",474,2,Muted);
             s.DrawTextCentered(refreshing?"You can keep navigating while the scan runs.":"No games are removed from your server.",530,2,Blue);
         }
         int row=_selected/3;
@@ -367,27 +410,28 @@ internal sealed class Launcher : ProsperoApp
             s.DrawTextClipped(Text(games[i],"title"),x+250,y+30,3,Color.White,280);
             MetadataTag(s,x+250,y+66,132,Text(games[i],"titleId"),TagId);
             MetadataTag(s,x+390,y+66,144,"Min FW "+(Text(games[i],"minimumFirmware").Length>0?Text(games[i],"minimumFirmware"):"?"),TagFirmware);
-            MetadataTag(s,x+390,y+108,144,Flag(games[i],"backportFiles")?"Backported":"Not Backported",Flag(games[i],"backportFiles")?TagBackport:TagNeutral);
-            MetadataTag(s,x+250,y+108,132,Size(Number(games[i],"size")),TagSize);
+            MetadataTag(s,x+390,y+108,144,Flag(games[i],"localOnly")&&Get(games[i],"backportFiles").ValueKind==JsonValueKind.Undefined?"Backport ?":Flag(games[i],"backportFiles")?"Backported":"Not Backported",Flag(games[i],"backportFiles")?TagBackport:TagNeutral);
+            MetadataTag(s,x+250,y+108,132,Flag(games[i],"localOnly")&&Number(games[i],"size")==0?"Size unknown":Size(Number(games[i],"size")),TagSize);
             MetadataTag(s,x+390,y+150,144,RegionLabel(games[i]),TagRegion);
             bool installed=InstalledLocation(games[i]).Length>0;
             MetadataTag(s,x+250,y+150,132,installed?"Installed":InstallStatus(games[i]),installed?TagInstalled:TagNeutral);
-            MetadataTag(s,x+250,y+192,284,"Server: "+Text(games[i],"sourceProtocol").ToUpperInvariant()+" · "+Text(games[i],"sourceName"),TagNeutral);
-            if(selected) { s.DrawText("× COPY",x+250,y+237,2,Blue); if(InstalledLocation(games[i]).Length>0)s.DrawText("R2 DELETE",x+390,y+237,2,Color.FromRgb(242,105,115)); }
+            MetadataTag(s,x+250,y+192,284,Flag(games[i],"localOnly")?"Local: "+Text(games[i],"sourceName"):"Server: "+Text(games[i],"sourceProtocol").ToUpperInvariant()+" · "+Text(games[i],"sourceName"),TagNeutral);
+            if(selected) { if(!Flag(games[i],"localOnly")||CanExport(games[i]))s.DrawText("× COPY",x+250,y+237,2,Blue); if(DeleteTarget(games[i]).ValueKind==JsonValueKind.Object)s.DrawText("R2 DELETE",x+390,y+237,2,Color.FromRgb(242,105,115)); }
             s.ResetTransform();s.AnimateText=true;
         }
         s.SetLibraryClip(false);
         // Visible rows take priority; warm only the next two rows, using the same
         // bounded worker queue and persistent PNG paths already in smb-state.
         for(int i=first+6;i<Math.Min(first+12,games.Length);i++)QueueCover(games[i]);
-        s.DrawText(refreshing?$"SCANNING  /  {Math.Max(0,(Environment.TickCount64-_refreshStarted)/1000)}s":_lastRefresh,76,850,2,Blue);
+        s.DrawText(_tab==1?(refreshing?"SCANNING LOCAL STORAGE":"INTERNAL + CONNECTED STORAGE"):refreshing?$"SCANNING  /  {Math.Max(0,(Environment.TickCount64-_refreshStarted)/1000)}s":_lastRefresh,76,850,2,Blue);
         if(games.Length>0)s.DrawText($"GAME {_selected+1} / {games.Length}",1560,850,2,Muted);
         if(refreshing) {
             s.FillRoundedRect(76,827,1760,4,2,Panel);
             int offset=(int)((Environment.TickCount64/5)%1540);
             s.FillRoundedRect(76+offset,827,220,4,2,Blue);
         }
-        s.DrawText("□  Refresh all     △  Sort     L2  Servers     ×  Copy selected game",76,890,2,Muted);
+        s.DrawText("□  Refresh     △  Sort     L2  Servers     ×  Copy",76,890,2,Muted);
+        if(games.Length>0&&CanExport(games[Math.Clamp(_selected,0,games.Length-1)]))s.DrawText("R3  Copy to server",1100,890,2,Blue);
     }
     private void DrawBackdrop(GlCanvas s) {
         if(_fixedBackground!=null)s.BlitScaled(_fixedBackground.AsSurface(),0,0,1920,1080,true,0,1,true);
@@ -542,13 +586,14 @@ internal sealed class Launcher : ProsperoApp
         if(_transferProgress>0) s.FillRoundedRect(120,488,(int)(1640*_transferProgress),26,10,Blue);
         s.DrawText(Size(received)+" / "+Size(total)+"    "+(Number(job,"speedBytesPerSecond")/1048576).ToString("F1")+" MB/s",120,550,3,Color.White);
         s.DrawTextClipped(Text(job,"error"),120,620,2,Muted,1640);
-        s.DrawText("×  Pause / Resume     □  Cancel transfer",76,890,2,Muted);
+        s.DrawText(Text(job,"direction")=="upload"?"□  Cancel server backup":"×  Pause / Resume     □  Cancel transfer",76,890,2,Muted);
+        if(Text(job,"direction")=="upload")s.DrawTextClipped("Server: /"+Text(job,"remotePath"),100,790,2,Muted,1690);
     }
     private static string Size(double value)=>value>=1073741824?(value/1073741824).ToString("F1")+" GB":(value/1048576).ToString("F1")+" MB";
     private void Box(GlCanvas s,string title) { s.FillRoundedRect(0,0,1920,1080,0,Color.Black.WithAlpha(125));s.FillRoundedRect(292,195,1336,680,28,Color.Black.WithAlpha(45));FrostPanel(s,300,195,1320,665,24); s.DrawTextClipped(title,350,235,4,Color.White,1210); }
     private void FrostPanel(GlCanvas s,int x,int y,int width,int height,int radius) {
         s.FillRoundedRect(x,y,width,height,radius,Ink.WithAlpha(235));
-        var game=(_visibleModal=="copy"||_visibleModal=="duplicate") && _copyGame.ValueKind==JsonValueKind.Object?_copyGame:_games.ElementAtOrDefault(_selected);
+        var game=(_visibleModal=="copy"||_visibleModal=="duplicate"||_visibleModal=="export") && _copyGame.ValueKind==JsonValueKind.Object?_copyGame:Games().ElementAtOrDefault(_selected);
         if(_covers.TryGetValue(Text(game,"id"),out var item)) {
             Surface poster=item is PngImage png?png.AsSurface():((JpegImage)item).AsSurface();
             s.BlitScaled(poster,x,y,width,height,true,radius,.65f,true);
@@ -654,6 +699,17 @@ internal sealed class Launcher : ProsperoApp
         bool Press(ScePadButton button)=>c.Pressed(button)||(stick!=0 && stick==button);
         if(Press(ScePadButton.Circle)) { _modal=_modal=="duplicate"?"copy":""; return; }
         if(_modal=="duplicate") {if(Press(ScePadButton.Cross))StartCopy(true);return;}
+        if(_modal=="export"){
+            var servers=ExportServers();var locations=ExportLocations();
+            if(Press(ScePadButton.Up))_exportServer=Math.Max(0,_exportServer-1);
+            if(Press(ScePadButton.Down))_exportServer=Math.Min(Math.Max(0,servers.Length-1),_exportServer+1);
+            if(Press(ScePadButton.Square)&&locations.Length>0)_exportLocation=(_exportLocation+1)%locations.Length;
+            if(Press(ScePadButton.Triangle))_exportSkipVerification=!_exportSkipVerification;
+            if(Press(ScePadButton.Cross)&&servers.Length>0&&locations.Length>0){
+                _exportServer=Math.Clamp(_exportServer,0,servers.Length-1);_exportLocation=Math.Clamp(_exportLocation,0,locations.Length-1);
+                Send("export",("localId",Text(locations[_exportLocation],"localId")),("sourceId",Text(servers[_exportServer],"id")),("confirmed",true),("skipVerification",_exportSkipVerification));_modal="";SelectTab(3);
+            }return;
+        }
         if(_modal=="deleteGame") {
             if(Press(ScePadButton.Cross)){
                 _deleteRequest="delete-"+Environment.TickCount64.ToString()+"-"+(++_deleteSerial).ToString();
@@ -686,9 +742,9 @@ internal sealed class Launcher : ProsperoApp
             } return;
         }
         HandleExit(c);
-        if(Press(ScePadButton.L1)) _tab=(_tab+2)%3;
-        if(Press(ScePadButton.R1)) _tab=(_tab+1)%3;
-        if(_tab==0) {
+        if(Press(ScePadButton.L1)) SelectTab((_tab+3)%4);
+        if(Press(ScePadButton.R1)) SelectTab((_tab+1)%4);
+        if(_tab<2) {
             var games=Games();
             if(Press(ScePadButton.Left)) _selected--;
             if(Press(ScePadButton.Right)) _selected++;
@@ -698,7 +754,7 @@ internal sealed class Launcher : ProsperoApp
             if(Press(ScePadButton.Square)) RefreshLibrary();
             if(Press(ScePadButton.Triangle)) {_sort=1-_sort;SortGames();_selected=0;}
             if(!Flag(Smb,"busy") && !_refreshPending && Press(ScePadButton.L2)) {
-                _tab=1;
+                SelectTab(2);
             }
             if(Press(ScePadButton.R2)&&games.Length>0 && InstalledLocation(games[_selected]).Length>0){
                 var target=DeleteTarget(games[_selected]);
@@ -706,8 +762,9 @@ internal sealed class Launcher : ProsperoApp
                 else if(target.ValueKind!=JsonValueKind.Object)_actionError="This installation cannot be deleted through ShadowMount. Refresh and try again.";
                 else {_deleteGame=target;_deleteTitle=Text(games[_selected],"title");_modal="deleteGame";}
             }
-            if(Press(ScePadButton.Cross)&&games.Length>0) {_copyGame=games[_selected];_copyId=Text(_copyGame,"id");_copyTitle=Text(games[_selected],"title");_drive=0;_modal="copy";}
-        } else if(_tab==1) {
+            if(Press(ScePadButton.R3)&&games.Length>0&&InstalledLocation(games[_selected]).Length>0)OpenExport(games[_selected]);
+            if(Press(ScePadButton.Cross)&&games.Length>0) {if(Flag(games[_selected],"localOnly"))OpenExport(games[_selected]);else{_copyGame=games[_selected];_copyId=Text(_copyGame,"id");_copyTitle=Text(games[_selected],"title");_drive=0;_modal="copy";}}
+        } else if(_tab==2) {
             var sources=Array(Get(Smb,"sources"));
             if(Press(ScePadButton.Up)) _sourceRow=Math.Max(0,_sourceRow-1);
             if(Press(ScePadButton.Down)) _sourceRow=Math.Min(Math.Max(0,sources.Length-1),_sourceRow+1);
@@ -722,7 +779,7 @@ internal sealed class Launcher : ProsperoApp
                 _modal=Press(ScePadButton.L2)?"duplicateSource":"deleteSource";
             }
         } else {
-            if(Press(ScePadButton.Cross)) Send(Text(Get(Smb,"job"),"status")=="copying"?"pause":"resume");
+            if(Press(ScePadButton.Cross)&&Text(Get(Smb,"job"),"direction")!="upload") Send(Text(Get(Smb,"job"),"status")=="copying"?"pause":"resume");
             if(Press(ScePadButton.Square)) _modal="cancel";
         }
     }

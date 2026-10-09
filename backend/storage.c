@@ -73,7 +73,7 @@ static void storage_diagnostic(const char *root, const char *stage, int error) {
 #define storage_diagnostic(root,stage,error) ((void)0)
 #endif
 static bool inspect(Storage *s, const char *id, const char *label, const char *root,
-                    bool external) {
+                    bool external,bool writable) {
     struct stat st, parent;
     struct statvfs fs;
     if(lstat(root,&st)){storage_diagnostic(root,"directory metadata",errno);return false;}
@@ -83,12 +83,12 @@ static bool inspect(Storage *s, const char *id, const char *label, const char *r
         if(st.st_dev==parent.st_dev){storage_diagnostic(root,"not a separate mounted device",ENODEV);return false;}
     }
     bool known=statvfs(root,&fs)==0;
-    if(!known && !capacity_unavailable(errno)){storage_diagnostic(root,"capacity query",errno);return false;}
-    if(known && (fs.f_flag&ST_RDONLY)){storage_diagnostic(root,"read-only filesystem",EROFS);return false;}
+    if(writable&&!known && !capacity_unavailable(errno)){storage_diagnostic(root,"capacity query",errno);return false;}
+    if(writable&&known && (fs.f_flag&ST_RDONLY)){storage_diagnostic(root,"read-only filesystem",EROFS);return false;}
 #ifdef ATMOSPHERE_NATIVE_APP
-    if(!probe_write(root,&st)){storage_diagnostic(root,"write probe",errno);return false;}
+    if(writable&&!probe_write(root,&st)){storage_diagnostic(root,"write probe",errno);return false;}
 #else
-    if(access(root,W_OK))return false;
+    if(access(root,writable?W_OK:R_OK))return false;
 #endif
     memset(s, 0, sizeof *s);
     copy_text(s->id, sizeof s->id, id);
@@ -106,11 +106,11 @@ static bool inspect(Storage *s, const char *id, const char *label, const char *r
     storage_diagnostic(root,known?"available":"writable; capacity unavailable",0);
     return true;
 }
-size_t storage_list(Storage *out) {
+static size_t list_drives(Storage *out,bool writable) {
     size_t n = 0;
     if (atmosphere.desktop) {
         if (atmosphere.desktop_storage[0] &&
-            inspect(out, "desktop", "Desktop test storage", atmosphere.desktop_storage, false))
+            inspect(out, "desktop", "Desktop test storage", atmosphere.desktop_storage, false,writable))
             n++;
         return n;
     }
@@ -119,7 +119,7 @@ size_t storage_list(Storage *out) {
         snprintf(id, sizeof id, "usb%d", i);
         snprintf(label, sizeof label, "USB storage %d", i + 1);
         snprintf(root, sizeof root, "/mnt/usb%d", i);
-        if (inspect(&out[n], id, label, root, true))
+        if (inspect(&out[n], id, label, root, true,writable))
             n++;
     }
     for (int i = 0; i < 8; i++) {
@@ -127,13 +127,15 @@ size_t storage_list(Storage *out) {
         snprintf(id, sizeof id, "ext%d", i);
         snprintf(label, sizeof label, "External storage %d", i + 1);
         snprintf(root, sizeof root, "/mnt/ext%d", i);
-        if (inspect(&out[n], id, label, root, true))
+        if (inspect(&out[n], id, label, root, true,writable))
             n++;
     }
-    if (inspect(&out[n], "internal", "Internal storage", "/data", false))
+    if (inspect(&out[n], "internal", "Internal storage", "/data", false,writable))
         n++;
     return n;
 }
+size_t storage_list(Storage *out){return list_drives(out,true);}
+size_t storage_sources(Storage *out){return list_drives(out,false);}
 bool storage_matches(const Job *j) {
     Storage a[ATMOSPHERE_MAX_STORAGE];
     size_t n = storage_list(a);

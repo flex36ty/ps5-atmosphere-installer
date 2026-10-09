@@ -27,4 +27,10 @@ RemoteDir *remote_opendir(RemoteSource *s,const char *path);
 struct smb2dirent *remote_readdir(RemoteSource *s,RemoteDir *dir);
 void remote_closedir(RemoteSource *s,RemoteDir *dir);
 uint32_t remote_max_read(RemoteSource *s);
+/* Writes are confined by the caller to a newly created backup directory. */
+int remote_mkdir(RemoteSource *s,const char *path);
+int remote_rmdir(RemoteSource *s,const char *path);
+int remote_rename(RemoteSource *s,const char *from,const char *to);
+int remote_upload(RemoteSource *s,const char *path,uint64_t size,
+                  size_t (*read_data)(void *,size_t,void *),void *context);
 #endif

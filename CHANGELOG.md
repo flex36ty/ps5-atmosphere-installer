@@ -1,5 +1,22 @@
 # Changelog
 
+## v2026.10.09.1 — 2026-10-09
+
+- Re-enable buffered read-ahead for native SMB downloads to overlap server reads with local writes and hashing. Retain synchronous fallback on allocation/thread-start failure and record actual read-ahead use in transfer timings.
+
+- Add a Triangle verification toggle to Copy to server. Verification defaults to OFF in the server picker; OFF skips remote SHA-256 readback while retaining file-size and source-change checks. Completed jobs explicitly report skipped verification and publish the backup from its hidden staging folder.
+
+- Read Installed Games firmware, region, backport markers and icons from local folders/images, with registered app metadata as a fallback. Cache icons on disk so local titles do not require matching server entries for their details or artwork.
+
+- Move local titles to a dedicated **Installed Games** tab. Keep server browsing in Library, preserve selections between tabs, and refresh installed storage independently of server connections.
+- Fix native directory enumeration failing with `EPERM`: use the libkernel directory APIs instead of libc's restricted `opendir` path, with bounded record parsing and explicit read errors. This also applies to recursive folder backups.
+
+- Show installed titles independently of active server catalogs, including readable local game folders and images. Preserve installed titles whose source cannot be exported.
+- Add R3 **Copy to server**, with an SMB/FTP server picker and Square to select between local copies. X opens the same picker for local-only cards.
+- Upload into a temporary hidden folder, optionally verify files by SHA-256 readback, then publish the original game file or game folder directly in the configured server path and remove the empty staging folder. Reject existing destination names. Preserve local originals and existing server content; report permission failures and incomplete backup paths.
+- Reject links, changed local files and upload resume requests. Cancelled/failed backups remain hidden for manual cleanup. Downloads retain their existing pause/resume support; WebDAV remains download-only.
+- Localhost FTP and Samba tests cover image/folder copies, direct destination names, staging cleanup, optional verification and rediscovery. FTP tests also cover existing-name rejection, read-only rejection, corruption, cancellation and symlink rejection. Read-ahead tests cover buffer ordering, overlap, cancellation and read errors. Signed modules were uploaded and verified on the test PS5; reported SMB speeds improved from about 63 MB/s to 81 MB/s, with fluctuations to about 50 MB/s. Throughput depends on the server and destination storage.
+
 ## v2026.10.09 — 2026-10-09
 
 - Move the native app's destination folder choice from Server settings to the copy popup. Square cycles through ShadowMountPlus scan folders on the selected storage device and shows the full path.

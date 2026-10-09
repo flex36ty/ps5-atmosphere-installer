@@ -24,9 +24,21 @@ The current application uses a native OpenGL interface and an in-process C backe
 - Automatic repair of permission-denied errors on the default internal destination and staging folders, using a bundled etaHEN helper.
 - Transfer progress, speed, pause/resume, and SHA-256 verification.
 - Installed-game detection by metadata title ID, with installed-source deletion through ShadowMountPlus.
+- A separate **Installed Games** tab lists local titles, including those absent from your servers. Readable local folders and images can be copied back to SMB or FTP with **X**; **R3** also opens server copying for an installed title in Library.
+- Installed-game details and icons are read from local game files, with registered app metadata as a fallback. Icons are cached on disk; a matching server entry is not required.
 - Minimum firmware display when present in metadata. Backported indicates detected `fakelib`/`fakelib2` content; Not Backported means no marker was detected. Neither label guarantees compatibility or proves that files are unmodified.
 - Subdued metadata tags and short region labels derived from a valid game content ID. Region is a content territory, not a guarantee of language support or region locking. Rescan after updating to populate the new field; unavailable regions show Unknown.
 - ShadowMountPlus rescan requests after transfers. Detection may complete after Atmosphere closes.
+
+## Copy installed games back to a server
+
+Open **Installed Games**, press **Square** to refresh local storage, then highlight a game and press **X** to choose an SMB or FTP server. **Square** in the server picker cycles local copies when the same title is on more than one drive. Press **X** to confirm. The server does not need to be active for browsing, but its saved connection must work and its configured folder must allow creating directories, writing, reading and renaming files.
+
+Game images are saved directly inside the server's configured path under their original filename. Folder games keep their original game folder, without an extra backup container. An existing name is rejected rather than replaced. Verification defaults to OFF in the server picker: Atmosphere checks remote file sizes without full content readback and reports **Verification skipped**. Press **Triangle** to turn verification ON for that copy and read the uploaded files back for a SHA-256 check before publishing. The installed original and existing server copies are preserved. Refresh afterward to list the new server copy.
+
+Server backups support cancellation, but not pause/resume. A cancelled or failed copy stays in a hidden `.atmosphere-upload-…` folder; Transfers shows its path. You can remove that incomplete folder from the server when no transfer is running. Starting again creates a new backup. WebDAV uploads are not supported.
+
+Registered titles without a readable game-folder/image source can appear in the library, but cannot be exported. This feature does not convert installed retail packages into game folders or images.
 
 ## Requirements and status
 

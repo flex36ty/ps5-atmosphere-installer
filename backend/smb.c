@@ -6,6 +6,8 @@
 #include "partial_file.h"
 #include "remote_source.h"
 #include "copy_destinations.h"
+#include "local_export.h"
+#include "game_details.h"
 #include <errno.h>
 #include <ctype.h>
 #include <fcntl.h>
@@ -31,12 +33,11 @@
 #define COPY_DEPTH 4U
 #define ARTWORK_BUDGET (64U * 1024 * 1024)
 #define METADATA_READER_VERSION 6
-#include "game_region.h"
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t changed = PTHREAD_COND_INITIALIZER;
 static pthread_t thread;
 static bool started, stopping, busy, pause_requested, cancel_requested;
-static int pending; /* 1: scan, 2: copy */
+static int pending; /* 1: scan, 2: download, 3: upload installed game */
 static cJSON *settings, *games, *job;
 static cJSON *sources;
 static cJSON *scan_paths,*destination_preferences;
@@ -276,35 +277,7 @@ static const char *image_format(const char *name) {
     return NULL;
 }
 static bool apply_param(cJSON *g, const unsigned char *data) {
-    bool found = false;
-    if (data) {
-        cJSON *meta = cJSON_Parse((const char *)data);
-        const char *title = json_text(meta, "title");
-        if (!*title) {
-            cJSON *localized = cJSON_GetObjectItemCaseSensitive(meta, "localizedParameters");
-            cJSON *lang = cJSON_GetObjectItemCaseSensitive(localized, json_text(localized, "defaultLanguage"));
-            if (!lang) lang = cJSON_GetObjectItemCaseSensitive(localized, "en-US");
-            title = json_text(lang, "titleName");
-        }
-        if (*title && strlen(title) < 256) { set_text(g, "title", title); found = true; }
-        const char *id = json_text(meta, "titleId");
-        if (*id && strlen(id) < 32) set_text(g, "titleId", id);
-        const char *content=json_text(meta,"contentId");
-        const char *region=game_region(content);
-        if(*region && (!*id || (strlen(id)==9 && !strncmp(content+7,id,9))))set_text(g,"region",region);
-        const char *fw=json_text(meta,"requiredSystemSoftwareVersion");
-        if(strlen(fw)==18 && fw[0]=='0' && (fw[1]=='x'||fw[1]=='X')) {
-            bool valid=true;
-            for(int i=2;i<18;i++)if(!isxdigit((unsigned char)fw[i]))valid=false;
-            for(int i=2;i<6;i++)if(fw[i]<'0'||fw[i]>'9')valid=false;
-            if(valid && (fw[2]!='0'||fw[3]!='0'||fw[4]!='0'||fw[5]!='0')){
-                char version[16];snprintf(version,sizeof version,"%d.%c%c",(fw[2]-'0')*10+fw[3]-'0',fw[4],fw[5]);
-                set_text(g,"minimumFirmware",version);
-            }
-        }
-        cJSON_Delete(meta);
-    }
-    return found;
+    return game_apply_param(g,data);
 }
 static void apply_art(cJSON *g, const unsigned char *data, size_t length, bool background) {
 #ifdef ATMOSPHERE_NATIVE_APP
@@ -638,9 +611,9 @@ static int copy_file(RemoteSource *s, const char *remote, int parent, const char
     if (!EVP_DigestInit_ex(digest, EVP_sha256(), NULL)) { strcpy(err,"Cannot initialize SHA-256 transfer verification."); goto end; }
     /* The reader exclusively owns the remote context until joined. Allocation
      * or thread failure falls back to the original synchronous transfer. */
-    /* Console read-ahead regressed observed throughput. Keep the proven native
-     * path until on-device phase timings justify enabling concurrency again. */
-    if(atmosphere.desktop && before.smb2_size>capacity) {
+    /* Overlap SMB reads with local writes/hash work on the console. Other
+     * native protocols keep their existing path; timings record actual use. */
+    if((atmosphere.desktop || !strcmp(remote_protocol(s),"smb")) && before.smb2_size>capacity) {
         ahead=malloc(capacity);
         if(ahead && !copy_pipeline_start(&pipeline,data,ahead,capacity,before.smb2_size,copy_fetch,&reader))pipelined=used_pipeline=true;
     }
@@ -891,6 +864,17 @@ static void scan_servers(void) {
     if(save_locked())copy_text(message,sizeof message,"Scan finished, but server state could not be saved.");
     pthread_mutex_unlock(&lock);
 }
+static void export_progress(uint64_t done,uint64_t total,const char *phase,const char *path){
+    pthread_mutex_lock(&lock);
+    static uint64_t previous;
+    double now=monotonic_seconds();if(!done)previous=0;
+    if(now-speed_updated>.25){transfer_speed=done>=previous?(done-previous)/(now-speed_updated):0;speed_updated=now;previous=done;}
+    set_number(job,"received",(double)done);set_number(job,"total",(double)total);
+    bool path_changed=strcmp(json_text(job,"remotePath"),path)!=0;
+    set_text(job,"phase",phase);set_text(job,"remotePath",path);
+    if(path_changed)save_locked();
+    pthread_mutex_unlock(&lock);
+}
 static void *worker(void *unused) {
     (void)unused;
     for (;;) {
@@ -916,31 +900,33 @@ static void *worker(void *unused) {
             found = cJSON_CreateArray(); unsigned visited = 0; artwork_bytes = 0;
             rc = found ? discover(s, json_text(cfg, "folder"), 0, &visited, found) : -1;
             if (rc) snprintf(err, sizeof err, "Scan incomplete: %.210s", remote_error(s));
-        } else rc = copy_game(s, work, err, &destroyed);
+        } else if(action==3)rc=local_export(s,work,json_text(cfg,"folder"),halted,export_progress,err);
+        else rc = copy_game(s, work, err, &destroyed);
         if (s) { remote_destroy(s); }
         /* The final rename and verification have completed before a rescan.
          * API availability must never turn a successful copy into a failure. */
         bool scan_queued=false;
         if(action==2 && !rc)scan_queued=library_rescan_after_copy();
         if(!rc)installed_refresh(json_text(cfg,"destinationFolder"));
+        bool skipped_verification=action==3&&cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(work,"skipVerification"));
         cJSON_Delete(cfg); cJSON_Delete(work);
         pthread_mutex_lock(&lock);
         if (action == 1 && !rc) { cJSON_Delete(games); games = found; found = NULL; revision++; }
-        if (action == 2) {
+        if (action == 2 || action == 3) {
             transfer_speed = 0;
             set_text(job, "status", !rc ? "complete" : cancel_requested ? "cancelled" :
-                     pause_requested || stopping ? "paused" : "error");
+                     action==2&&(pause_requested || stopping) ? "paused" : "error");
             set_text(job, "error", !rc ? "" : err);
             if (!rc) {
-                set_text(job, "verification", "sha256");
-                set_text(job,"phase",scan_queued?"Verified; ShadowMount rescan requested":"Verified; ShadowMount rescan unavailable");
+                set_text(job, "verification", skipped_verification?"skipped":"sha256");
+                set_text(job,"phase",action==3?(skipped_verification?"Backup complete; verification skipped":"Server backup verified; refresh to list it"):scan_queued?"Verified; ShadowMount rescan requested":"Verified; ShadowMount rescan unavailable");
                 set_text(job,"rescan",scan_queued?"requested":"unavailable");
             }
             pthread_mutex_lock(&atmosphere.mutex); atmosphere.smb_storage_busy = false;
             pthread_cond_signal(&atmosphere.changed); pthread_mutex_unlock(&atmosphere.mutex);
         }
         if (action == 1 && !rc) snprintf(message, sizeof message, "Scan complete: %d games found.", cJSON_GetArraySize(games));
-        else copy_text(message, sizeof message, rc ? err : "Copy complete. SHA-256 verified.");
+        else copy_text(message, sizeof message, rc ? err : skipped_verification?"Copy complete. Verification skipped.":"Copy complete. SHA-256 verified.");
         busy = false;
         if (save_locked()) copy_text(message, sizeof message, "Operation finished, but server state could not be saved.");
         pthread_mutex_unlock(&lock); cJSON_Delete(found);
@@ -994,6 +980,21 @@ cJSON *smb_snapshot(bool include_games) {
                 set_text(copy,"sourceProtocol",source_protocol(cfg));cJSON_AddItemToArray(all,copy);
             }
         }
+        cJSON *installed_games=cJSON_CreateArray(),*local;cJSON_ArrayForEach(local,cJSON_GetObjectItemCaseSensitive(cJSON_GetObjectItemCaseSensitive(o,"installed"),"games")){
+            const char *id=json_text(local,"titleId");if(!strcmp(id,"PPSA99005"))continue;
+            bool present=false;cJSON *existing;cJSON_ArrayForEach(existing,installed_games)if(!strcmp(json_text(existing,"titleId"),id)){present=true;break;}
+            if(present)continue;
+            cJSON *copy=cJSON_Duplicate(local,true);set_text(copy,"id",*json_text(local,"localId")?json_text(local,"localId"):id);
+            set_text(copy,"title",*json_text(local,"title")?json_text(local,"title"):id);
+            set_text(copy,"sourceId","local");set_text(copy,"sourceName",json_text(local,"location"));set_text(copy,"sourceProtocol","local");
+            cJSON_ArrayForEach(existing,all)if(!strcmp(json_text(existing,"titleId"),id)){
+                const char *keys[]={"cover","minimumFirmware","region","backportFiles"};
+                for(size_t k=0;k<sizeof keys/sizeof *keys;k++){const cJSON *value=cJSON_GetObjectItemCaseSensitive(existing,keys[k]);if(value&&!cJSON_HasObjectItem(copy,keys[k]))cJSON_AddItemToObject(copy,keys[k],cJSON_Duplicate(value,true));}
+                break;
+            }
+            cJSON_AddBoolToObject(copy,"localOnly",true);cJSON_AddItemToArray(installed_games,copy);
+        }
+        cJSON_AddItemToObject(o,"installedGames",installed_games);
         cJSON_AddItemToObject(o,"games",all);
     }
     cJSON_AddNumberToObject(o, "revision", revision);
@@ -1007,7 +1008,9 @@ cJSON *smb_snapshot(bool include_games) {
     cJSON_AddBoolToObject(o, "available", started);
     cJSON_AddBoolToObject(o, "remember", view?cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(view,"remember")):remember);
     cJSON_AddBoolToObject(o, "hasPassword", view?*json_text(view,"password")!=0:*password != 0);
-    cJSON_AddStringToObject(o, "message", message);
+    const cJSON *installed=cJSON_GetObjectItemCaseSensitive(o,"installed");
+    bool local_done=!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(installed,"sourceChecking"))&&!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(installed,"checking"));
+    cJSON_AddStringToObject(o, "message", local_done&&!strcmp(message,"Refreshing installed games...")?"Installed games refreshed.":message);
     pthread_mutex_unlock(&lock); return o;
 }
 int smb_action(const cJSON *input, char *error, size_t cap) {
@@ -1017,9 +1020,34 @@ int smb_action(const cJSON *input, char *error, size_t cap) {
     if (!started || stopping) { code = 503; copy_text(error, cap, "Server worker is unavailable."); goto end; }
     if (!strcmp(action, "pause") || !strcmp(action, "cancel")) {
         if (!job || strcmp(json_text(job, "status"), "copying")) { code = 409; goto end; }
+        if(!strcmp(action,"pause")&&!strcmp(json_text(job,"direction"),"upload")){code=409;copy_text(error,cap,"Server backups can be cancelled, then restarted as a new backup.");goto end;}
         pause_requested = !strcmp(action, "pause"); cancel_requested = !strcmp(action, "cancel"); goto end;
     }
     if (busy) { code = 409; copy_text(error, cap, "Wait for the server operation to finish."); goto end; }
+    if(!strcmp(action,"refreshInstalled")){installed_refresh(NULL);copy_text(message,sizeof message,"Refreshing installed games...");goto end;}
+    if(!strcmp(action,"resume")&&!strcmp(json_text(job,"direction"),"upload")){code=409;copy_text(error,cap,"Select the installed game and start a new server backup.");goto end;}
+    if(!strcmp(action,"export")){
+        if(!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(input,"confirmed"))){code=400;copy_text(error,cap,"Confirm copying this installed game to the server.");goto end;}
+        sync_source();cJSON *profile=source_by_id(json_text(input,"sourceId"));
+        const cJSON *cfg=cJSON_GetObjectItemCaseSensitive(profile,"settings");
+        if(!profile||!*json_text(cfg,"server")||(!strcmp(source_protocol(cfg),"webdav")||!strcmp(source_protocol(cfg),"webdavs"))){code=400;copy_text(error,cap,"Choose a configured SMB or FTP server.");goto end;}
+        cJSON *inventory=installed_snapshot(),*candidate,*next=NULL;
+        cJSON_ArrayForEach(candidate,cJSON_GetObjectItemCaseSensitive(inventory,"games"))
+            if(*json_text(input,"localId")&&!strcmp(json_text(candidate,"localId"),json_text(input,"localId"))&&cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(candidate,"canExport")))next=cJSON_Duplicate(candidate,true);
+        cJSON_Delete(inventory);
+        if(!next){code=409;copy_text(error,cap,"No readable installed source. Refresh the local library first.");goto end;}
+        pthread_mutex_lock(&atmosphere.mutex);bool active=atmosphere.library_storage_busy;
+        for(size_t i=0;i<atmosphere.job_count;i++)if(!strcmp(atmosphere.jobs[i].status,"downloading")||!strcmp(atmosphere.jobs[i].status,"verifying"))active=true;
+        if(!active)atmosphere.smb_storage_busy=true;pthread_mutex_unlock(&atmosphere.mutex);
+        if(active){cJSON_Delete(next);code=409;copy_text(error,cap,"Wait for the storage operation to finish.");goto end;}
+        load_source(profile);char id[24];random_hex(id,8);set_text(next,"id",id);set_text(next,"sourceId",active_source);
+        set_text(next,"direction","upload");set_text(next,"status","copying");set_text(next,"phase","Preparing server backup");set_number(next,"received",0);
+        cJSON_AddBoolToObject(next,"skipVerification",cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(input,"skipVerification")));
+        cJSON *old=job;job=next;
+        if(save_locked()){job=old;cJSON_Delete(next);code=503;copy_text(error,cap,"Cannot save the backup job.");pthread_mutex_lock(&atmosphere.mutex);atmosphere.smb_storage_busy=false;pthread_mutex_unlock(&atmosphere.mutex);goto end;}
+        cJSON_Delete(old);pending=3;busy=true;pause_requested=cancel_requested=false;transfer_speed=0;speed_updated=monotonic_seconds();
+        copy_text(message,sizeof message,"Preparing server backup...");pthread_cond_signal(&changed);goto end;
+    }
     if(!strcmp(action,"duplicateSource")){
         if(!cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(input,"confirmed"))){code=400;copy_text(error,cap,"Confirm duplicating this server first.");goto end;}
         if(cJSON_GetArraySize(sources)>=8){code=400;copy_text(error,cap,"Up to eight servers are supported.");goto end;}
@@ -1242,7 +1270,10 @@ int smb_start(void) {
             cJSON_Delete(settings); settings = cJSON_Duplicate(cfg, true);
             cJSON_Delete(games); games = cJSON_IsArray(list) ? cJSON_Duplicate(list, true) : cJSON_CreateArray();
             cJSON *j = cJSON_GetObjectItemCaseSensitive(saved, "job");
-            if (cJSON_IsObject(j)) { job = cJSON_Duplicate(j, true); if (!strcmp(json_text(job, "status"), "copying")) set_text(job, "status", "paused"); }
+            if (cJSON_IsObject(j)) { job = cJSON_Duplicate(j, true); if (!strcmp(json_text(job, "status"), "copying")) {
+                bool upload=!strcmp(json_text(job,"direction"),"upload");set_text(job,"status",upload?"error":"paused");
+                if(upload){set_text(job,"phase","Server backup interrupted");set_text(job,"error","Local original kept. Start a new backup; any partial server folder remains hidden.");}
+            } }
             remember = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(saved, "remember"));
             if (remember) copy_text(password, sizeof password, json_text(saved, "password"));
         }

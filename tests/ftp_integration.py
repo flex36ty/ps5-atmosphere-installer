@@ -98,7 +98,9 @@ with tempfile.TemporaryDirectory() as tmp, Server(('127.0.0.1',0),Handler) as ft
         assert idle()['job']['status']=='complete'
         assert (root/'dest/second/Second Server.ffpfsc').read_bytes()==FILES['/other/Second Server.ffpfsc']
         action('deactivateSource',sourceId=first)
-        assert {g['sourceId'] for g in request()['games']}=={second}
+        remaining=request()['games']
+        assert {g['sourceId'] for g in remaining if not g.get('localOnly')}=={second}
+        assert any(g['titleId']=='PPSA00001' for g in request()['installedGames'])
         action('selectSource',sourceId=first)
         assert len(request()['games'])==first_count+1
         saved=json.loads((root/'state/smb-state.json').read_text())

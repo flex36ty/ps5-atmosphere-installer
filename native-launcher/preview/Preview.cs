@@ -141,11 +141,27 @@ internal static class Preview {
   if(destination.Selected!="etaHEN/games"||destination.Folders.Length!=3||destination.Legacy)throw new Exception("Destination preference or source isolation failed");
   if(((string[])typeof(Launcher).GetField("_keys",Hidden)!.GetValue(app)!).Contains("destinationFolder"))throw new Exception("Destination remains in server editor");
   Console.WriteLine("PASS: destination selector restores drive preference and excludes another server's legacy folder");
-  foreach(var view in new[]{"library","refreshing","empty","sources","transfers","copy","deleteGame","duplicateSource","settings"}) {
+  using var installedDoc=JsonDocument.Parse(destinationsDoc.RootElement.GetRawText().Replace("\"smb\":{","\"smb\":{\"installedGames\":[{\"id\":\"local-one\",\"title\":\"Adventure Collection\",\"titleId\":\"PPSA00001\",\"localOnly\":true,\"sourceId\":\"local\",\"sourceName\":\"USB storage 1\",\"format\":\"ffpfsc\",\"size\":48000000000},{\"id\":\"local-two\",\"title\":\"Local Collection\",\"titleId\":\"PPSA00003\",\"localOnly\":true,\"sourceId\":\"local\",\"sourceName\":\"Internal storage\",\"format\":\"folder\"}],"));
+  Call(app,"UpdateData",installedDoc.RootElement.Clone());Call(app,"SelectTab",1);
+  if(((JsonElement[])Call(app,"Games")!).Length!=2||((JsonElement[])Call(app,"Games")!)[1].GetProperty("titleId").GetString()!="PPSA00003")throw new Exception("Installed tab does not use its own catalog");
+  Set(app,"_selected",1);Call(app,"SelectTab",0);
+  if(((JsonElement[])Call(app,"Games")!)[1].GetProperty("titleId").GetString()!="PPSA00002")throw new Exception("Local games leaked into server tab");
+  Call(app,"SelectTab",1);if((int)typeof(Launcher).GetField("_selected",Hidden)!.GetValue(app)!=1)throw new Exception("Installed selection was not restored");
+  Call(app,"SelectTab",0);Console.WriteLine("PASS: separate installed/server catalogs and tab selection restoration");
+  foreach(var view in new[]{"library","installed","refreshing","empty","sources","transfers","copy","export","deleteGame","duplicateSource","settings"}) {
    Call(app,"UpdateData",destinationsDoc.RootElement.Clone());
+   if(view=="installed"){
+    var populated=installedDoc.RootElement.GetRawText().Replace("\"location\":\"USB 0\"","\"location\":\"USB 0\",\"canExport\":true,\"localId\":\"local-one\"},{\"titleId\":\"PPSA00003\",\"location\":\"Internal storage\",\"canExport\":true,\"localId\":\"local-two\"");
+    Call(app,"UpdateData",State(populated));
+   }
    Set(app,"_refreshActive",view=="refreshing");Set(app,"_refreshStarted",Environment.TickCount64-8000);
    if(view=="empty")Set(app,"_games",Array.Empty<JsonElement>());
-   Set(app,"_tab",view=="sources"?1:view=="transfers"?2:0);Set(app,"_modal",view=="copy"?"copy":view=="deleteGame"?"deleteGame":view=="duplicateSource"?"duplicateSource":"");
+   Set(app,"_tab",view=="installed"?1:view=="sources"?2:view=="transfers"?3:0);Set(app,"_modal",view=="copy"?"copy":view=="deleteGame"?"deleteGame":view=="duplicateSource"?"duplicateSource":"");
+   if(view=="export"){
+    Call(app,"UpdateData",State("""{"smb":{"sources":[{"id":"s1","name":"Living Room NAS","protocol":"smb","folder":"ps5"},{"id":"s2","name":"Backup FTP","protocol":"ftp","folder":"games"},{"id":"s3","protocol":"webdav"}],"installed":{"games":[{"titleId":"PPSA00001","localId":"local-test","canExport":true,"location":"USB storage 1"}]}}}"""));
+    Call(app,"OpenExport",State("""{"titleId":"PPSA00001","title":"Adventure Collection"}"""));
+    if(((JsonElement[])Call(app,"ExportServers")!).Length!=2||((JsonElement[])Call(app,"ExportLocations")!).Length!=1)throw new Exception("Export server or local source filtering failed");
+   }
    if(view=="deleteGame"){Set(app,"_deleteTitle","Adventure Collection");Set(app,"_deleteGame",State("""{"titleId":"PPSA00001","location":"USB 0","path":"/mnt/usb0/homebrew/Adventure Collection.ffpfsc"}"""));}
    if(view=="duplicateSource")Set(app,"_deleteSourceName","Living Room NAS");
    if(view=="settings") Call(app,"EditSettings");

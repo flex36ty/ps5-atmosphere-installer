@@ -99,6 +99,7 @@ cJSON *sources_json_locked(void);
 int sources_set_locked(const cJSON *input, char *error, size_t cap);
 Job *job_find(const char *id);
 size_t storage_list(Storage *out);
+size_t storage_sources(Storage *out);
 bool storage_has_space(int fd, uint64_t required);
 bool storage_matches(const Job *job);
 int storage_open(const Job *job);

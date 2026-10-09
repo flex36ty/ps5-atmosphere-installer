@@ -1,5 +1,5 @@
-/* Read-only SMB/FTP/WebDAV adapter. Remote paths are URL-escaped and never interpreted
- * as commands. The caller retains destination validation and copy verification. */
+/* SMB/FTP/WebDAV reads and SMB/FTP backup writes. URL paths are escaped; FTP
+ * control paths reject control characters. Callers validate copy destinations. */
 #define _POSIX_C_SOURCE 200809L
 #include "remote_source.h"
 #include <curl/curl.h>
@@ -9,6 +9,7 @@
 #include <strings.h>
 #include <limits.h>
 #include <errno.h>
+#include <fcntl.h>
 #include "webdav_listing.h"
 #include "ca.h"
 struct RemoteSource {struct smb2_context *smb; CURL *curl; char base[320],error[CURL_ERROR_SIZE]; bool (*cancel)(void); bool dav,tls; unsigned long long range_start,range_end,range_total; bool range_valid;};
@@ -51,6 +52,7 @@ static size_t header(char *data,size_t size,size_t count,void *opaque){
 static int request(RemoteSource *s,const char *path,bool directory,Buffer *buffer,const char *range,bool info){
     char *address=url(s,path,directory);if(!address)return -1;s->error[0]=0;
     curl_easy_setopt(s->curl,CURLOPT_URL,address);
+    curl_easy_setopt(s->curl,CURLOPT_UPLOAD,0L);
     curl_easy_setopt(s->curl,CURLOPT_CUSTOMREQUEST,directory?(s->dav?"PROPFIND":"MLSD"):NULL);
     struct curl_slist *headers=NULL;
     if(s->dav&&directory)headers=curl_slist_append(headers,"Depth: 1");
@@ -168,3 +170,57 @@ int remote_pread(RemoteSource *s,RemoteFile *f,void *data,uint32_t length,uint64
     Buffer b={.data=data,.capacity=length};if(request(s,f->path,false,&b,range,false))return -1;return (int)b.used;
 }
 uint32_t remote_max_read(RemoteSource *s){return s->smb?smb2_get_max_read_size(s->smb):1024*1024;}
+
+static bool command_path(const char *path){
+    if(!path||!*path||strlen(path)>4096)return false;
+    for(const unsigned char *p=(const unsigned char*)path;*p;p++)if(*p<32||*p==127)return false;
+    return true;
+}
+static int ftp_commands(RemoteSource *s,const char *verb,const char *path,const char *second){
+    if(s->dav||!command_path(path)||(second&&!command_path(second)))return -1;
+    char command[4200];struct curl_slist *commands=NULL;
+    snprintf(command,sizeof command,"%s /%s",verb,path);commands=curl_slist_append(commands,command);
+    if(second){snprintf(command,sizeof command,"RNTO /%s",second);commands=curl_slist_append(commands,command);}
+    s->error[0]=0;
+    curl_easy_setopt(s->curl,CURLOPT_URL,s->base);
+    curl_easy_setopt(s->curl,CURLOPT_UPLOAD,0L);
+    curl_easy_setopt(s->curl,CURLOPT_CUSTOMREQUEST,NULL);
+    curl_easy_setopt(s->curl,CURLOPT_RANGE,NULL);
+    curl_easy_setopt(s->curl,CURLOPT_NOBODY,1L);
+    curl_easy_setopt(s->curl,CURLOPT_WRITEFUNCTION,discard);curl_easy_setopt(s->curl,CURLOPT_WRITEDATA,NULL);
+    curl_easy_setopt(s->curl,CURLOPT_QUOTE,commands);
+    CURLcode rc=curl_easy_perform(s->curl);
+    curl_easy_setopt(s->curl,CURLOPT_QUOTE,NULL);curl_slist_free_all(commands);
+    if(rc&&!*s->error)snprintf(s->error,sizeof s->error,"FTP: %s",curl_easy_strerror(rc));
+    return rc?-1:0;
+}
+int remote_mkdir(RemoteSource *s,const char *path){return !command_path(path)?-1:s->smb?smb2_mkdir(s->smb,path):ftp_commands(s,"MKD",path,NULL);}
+int remote_rmdir(RemoteSource *s,const char *path){return !command_path(path)?-1:s->smb?smb2_rmdir(s->smb,path):ftp_commands(s,"RMD",path,NULL);}
+int remote_rename(RemoteSource *s,const char *from,const char *to){return !command_path(from)||!command_path(to)?-1:s->smb?smb2_rename(s->smb,from,to):ftp_commands(s,"RNFR",from,to);}
+typedef struct {size_t (*read_data)(void *,size_t,void *);void *context;} Upload;
+static size_t upload_read(char *data,size_t size,size_t count,void *opaque){
+    Upload *u=opaque;if(size&&count>SIZE_MAX/size)return CURL_READFUNC_ABORT;
+    size_t n=u->read_data(data,size*count,u->context);return n==SIZE_MAX?CURL_READFUNC_ABORT:n;
+}
+int remote_upload(RemoteSource *s,const char *path,uint64_t size,size_t (*read_data)(void *,size_t,void *),void *context){
+    if(!command_path(path)||size>INT64_MAX||s->dav)return -1;
+    if(s->smb){
+        struct smb2fh *file=smb2_open(s->smb,path,O_WRONLY|O_CREAT|O_EXCL);if(!file)return -1;
+        uint32_t chunk=smb2_get_max_write_size(s->smb);if(chunk>1024*1024)chunk=1024*1024;
+        unsigned char *buffer=chunk?malloc(chunk):NULL;int rc=buffer?0:-1;uint64_t offset=0;
+        while(!rc&&offset<size){size_t wanted=size-offset<chunk?(size_t)(size-offset):chunk;
+            size_t n=read_data(buffer,wanted,context);if(!n||n==SIZE_MAX||n>wanted){rc=-1;break;}
+            size_t done=0;while(done<n){int wrote=smb2_pwrite(s->smb,file,buffer+done,(uint32_t)(n-done),offset+done);if(wrote<=0){rc=-1;break;}done+=(size_t)wrote;}offset+=done;
+        }
+        if(!rc)rc=smb2_fsync(s->smb,file);free(buffer);if(smb2_close(s->smb,file))rc=-1;return rc;
+    }
+    char *address=url(s,path,false);if(!address)return -1;Upload upload={read_data,context};s->error[0]=0;
+    curl_easy_setopt(s->curl,CURLOPT_URL,address);curl_easy_setopt(s->curl,CURLOPT_CUSTOMREQUEST,NULL);
+    curl_easy_setopt(s->curl,CURLOPT_RANGE,NULL);curl_easy_setopt(s->curl,CURLOPT_NOBODY,0L);
+    curl_easy_setopt(s->curl,CURLOPT_UPLOAD,1L);curl_easy_setopt(s->curl,CURLOPT_INFILESIZE_LARGE,(curl_off_t)size);
+    curl_easy_setopt(s->curl,CURLOPT_WRITEFUNCTION,discard);curl_easy_setopt(s->curl,CURLOPT_WRITEDATA,NULL);
+    curl_easy_setopt(s->curl,CURLOPT_READFUNCTION,upload_read);curl_easy_setopt(s->curl,CURLOPT_READDATA,&upload);
+    CURLcode rc=curl_easy_perform(s->curl);free(address);
+    curl_easy_setopt(s->curl,CURLOPT_UPLOAD,0L);curl_easy_setopt(s->curl,CURLOPT_READFUNCTION,NULL);curl_easy_setopt(s->curl,CURLOPT_READDATA,NULL);
+    if(rc&&!*s->error)snprintf(s->error,sizeof s->error,"FTP upload: %s",curl_easy_strerror(rc));return rc?-1:0;
+}
